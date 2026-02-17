@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+backend/uploads/
+*.log
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
