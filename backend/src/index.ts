@@ -7,6 +7,8 @@ import path from 'path';
 import fs from 'fs';
 import { getDb } from './db/schema';
 import { registerStationRoutes } from './routes/stations';
+import { authRoutes } from './routes/auth';
+import jwtAuthPlugin from './plugins/jwt-auth';
 import { FFmpegSupervisor } from './services/ffmpeg-supervisor';
 import { getSystemHealth } from './utils/system-health';
 
@@ -37,6 +39,9 @@ async function main() {
     },
   });
   await app.register(websocket);
+
+  // JWT authentication + rate limiting (registers before all routes)
+  await app.register(jwtAuthPlugin);
 
   // Serve uploaded files
   await app.register(fastifyStatic, {
@@ -85,6 +90,7 @@ async function main() {
   });
 
   // Register routes
+  await app.register(authRoutes);
   registerStationRoutes(app, supervisor);
 
   // ─── SSE endpoint for real-time updates ──────────────────

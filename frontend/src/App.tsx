@@ -1,12 +1,22 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useSSE } from './hooks/useSSE';
+import { useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import StationDetail from './pages/StationDetail';
+import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 
-export default function App() {
-  const sse = useSSE();
+function PrivateRoute({ children }: { children: React.ReactNode }) {
+  const { token } = useAuth();
+  const location = useLocation();
+  if (!token) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return <>{children}</>;
+}
 
+function AppShell() {
+  const sse = useSSE();
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar connected={sse.connected} />
@@ -17,5 +27,21 @@ export default function App() {
         </Routes>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/*"
+        element={
+          <PrivateRoute>
+            <AppShell />
+          </PrivateRoute>
+        }
+      />
+    </Routes>
   );
 }

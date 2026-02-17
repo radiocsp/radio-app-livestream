@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', '..', 'data', 'radiostream.db');
 
@@ -109,5 +111,33 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_playlist_items_station ON playlist_items(station_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_rtmp_destinations_station ON rtmp_destinations(station_id);
     CREATE INDEX IF NOT EXISTS idx_station_logs_station ON station_logs(station_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'admin',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT,
+      last_login TEXT,
+      last_ip TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
   `);
+
+  // Seed default admin if no users exist
+  const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
+  if (userCount === 0) {
+    const adminPass = process.env.ADMIN_PASSWORD || 'admin123!';
+    const hash = bcrypt.hashSync(adminPass, 12);
+    db.prepare(
+      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, 'admin')"
+    ).run(uuidv4(), 'admin', hash);
+    console.log(`\n🔐 Default admin user created. Username: admin  Password: ${adminPass}`);
+    console.log('   ⚠️  Change the password immediately via the UI!\n');
+  }
 }

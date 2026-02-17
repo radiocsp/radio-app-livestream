@@ -1,10 +1,36 @@
 const API = '/api';
 
+// Token getter — reads from both storages (login page sets appropriate storage)
+function getToken(): string | null {
+  return localStorage.getItem('rss_token') || sessionStorage.getItem('rss_token');
+}
+
+// Handle 401 — reload to trigger PrivateRoute redirect
+function handle401() {
+  localStorage.removeItem('rss_token');
+  localStorage.removeItem('rss_refresh');
+  localStorage.removeItem('rss_user');
+  sessionStorage.removeItem('rss_token');
+  sessionStorage.removeItem('rss_refresh');
+  sessionStorage.removeItem('rss_user');
+  window.location.href = '/login';
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API}${url}`, { ...options, headers });
+
+  if (res.status === 401) {
+    handle401();
+    throw new Error('Session expired — redirecting to login');
+  }
+
   return res.json();
 }
 
@@ -37,10 +63,13 @@ export const api = {
   uploadVideo: async (stationId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
+    const token = getToken();
     const res = await fetch(`${API}/stations/${stationId}/playlist/upload`, {
       method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     });
+    if (res.status === 401) { handle401(); throw new Error('Unauthorized'); }
     return res.json();
   },
   reorderPlaylist: (stationId: string, items: { id: string; sort_order: number; is_enabled?: number }[]) =>

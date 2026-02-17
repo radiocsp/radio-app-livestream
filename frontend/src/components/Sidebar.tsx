@@ -1,5 +1,6 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Radio, LayoutDashboard, Wifi, WifiOff } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Radio, LayoutDashboard, Wifi, WifiOff, LogOut, User, Shield } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
   connected: boolean;
@@ -7,6 +8,13 @@ interface SidebarProps {
 
 export default function Sidebar({ connected }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-full">
@@ -38,6 +46,31 @@ export default function Sidebar({ connected }: SidebarProps) {
         </Link>
       </nav>
 
+      {/* User info + Logout */}
+      {user && (
+        <div className="px-3 py-2 border-t border-gray-800">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-gray-800/50">
+            <div className="w-8 h-8 rounded-full bg-indigo-600/30 flex items-center justify-center shrink-0">
+              <User className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user.username}</p>
+              <p className="text-[10px] text-gray-500 flex items-center gap-1">
+                <Shield className="w-2.5 h-2.5" />
+                {user.role}
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Connection status */}
       <div className="p-4 border-t border-gray-800">
         <div className="flex items-center gap-2 text-xs">
@@ -53,7 +86,7 @@ export default function Sidebar({ connected }: SidebarProps) {
             </>
           )}
         </div>
-        <p className="text-[10px] text-gray-600 mt-1">v1.0.0 • RadioStream Studio</p>
+        <p className="text-[10px] text-gray-600 mt-1">v1.1.0 • RadioStream Studio</p>
       </div>
     </aside>
   );
