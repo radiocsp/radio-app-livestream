@@ -132,18 +132,180 @@ Open **http://localhost:5173** in your browser.
 
 ## 🐳 Docker Deployment (Ubuntu VPS)
 
-```bash
-# Clone and deploy
-docker-compose up -d --build
+### Recommended VPS specs
+- **2+ vCPU / 4+ GB RAM** (4 vCPU / 8 GB recommended for multiple stations)
+- Ubuntu 22.04+ or 24.04 LTS
+- Open ports: **80** (HTTP), **443** (HTTPS optional)
 
-# Access at http://YOUR_VPS_IP
+### Step 1: Install Docker & Docker Compose
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Docker
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+
+# Log out and back in (or run: newgrp docker)
+
+# Verify
+docker --version
+docker compose version
 ```
 
-### Recommended VPS specs
-- 4 vCPU / 8 GB RAM
-- Ubuntu 22.04+
-- Docker + Docker Compose
-- FFmpeg (included in Docker image)
+### Step 2: Clone the repository
+
+```bash
+cd /opt
+sudo git clone https://github.com/radiocsp/radio-app-livestream.git radiostream
+sudo chown -R $USER:$USER /opt/radiostream
+cd /opt/radiostream
+```
+
+### Step 3: Configure environment
+
+Edit `docker-compose.yml` and change these values:
+
+```bash
+nano docker-compose.yml
+```
+
+**⚠️ IMPORTANT — Change before going live:**
+```yaml
+environment:
+  - JWT_SECRET=your-random-secret-minimum-32-characters-long
+  - ADMIN_PASSWORD=YourStrongPassword123!
+```
+
+Generate a secure JWT secret:
+```bash
+openssl rand -hex 32
+```
+
+### Step 4: Build and start
+
+```bash
+docker compose up -d --build
+```
+
+This will:
+- Build the backend (Node.js 20 + FFmpeg with full filter support including `drawtext`)
+- Build the frontend (React → nginx)
+- Start both containers
+
+### Step 5: Verify
+
+```bash
+# Check containers are running
+docker compose ps
+
+# Check logs
+docker compose logs -f
+
+# Test health endpoint
+curl http://localhost/api/system/health
+```
+
+### Access the app
+
+Open **http://YOUR_VPS_IP** in your browser.
+
+Login: `admin` / (the password you set in `ADMIN_PASSWORD`)
+
+### Useful commands
+
+```bash
+# Stop
+docker compose down
+
+# Restart
+docker compose restart
+
+# Rebuild after pulling updates
+git pull origin main
+docker compose up -d --build
+
+# View live logs
+docker compose logs -f backend
+
+# Backup database
+cp /opt/radiostream/data/radiostream.db /opt/radiostream/data/radiostream.db.bak
+```
+
+### Optional: HTTPS with Caddy (recommended)
+
+```bash
+# Install Caddy
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install caddy
+
+# Configure Caddy (replace radio.yourdomain.com)
+sudo tee /etc/caddy/Caddyfile <<EOF
+radio.yourdomain.com {
+    reverse_proxy localhost:80
+}
+EOF
+
+# In docker-compose.yml, change frontend port from "80:80" to "8080:80"
+# Then restart:
+docker compose up -d
+sudo systemctl restart caddy
+```
+
+Caddy will automatically get a Let's Encrypt SSL certificate.
+
+### Optional: Run WITHOUT Docker (bare metal)
+
+```bash
+# Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install FFmpeg (with drawtext/libfreetype support)
+sudo apt install -y ffmpeg
+
+# Verify FFmpeg has drawtext
+ffmpeg -filters 2>&1 | grep drawtext
+# Should show: T->T drawtext V->V ...
+
+# Clone & setup
+cd /opt
+sudo git clone https://github.com/radiocsp/radio-app-livestream.git radiostream
+sudo chown -R $USER:$USER /opt/radiostream
+cd /opt/radiostream
+
+# Backend
+cd backend
+npm install
+npm run build
+
+# Frontend
+cd ../frontend
+npm install
+npm run build
+
+# Copy frontend build to backend
+cp -r dist ../backend/dist-frontend  # (or configure nginx to serve frontend)
+
+# Start backend
+cd ../backend
+JWT_SECRET=your-secret-here ADMIN_PASSWORD=YourPassword123! node dist/index.js
+
+# The app will be available on http://YOUR_IP:3001
+```
+
+For production bare-metal, use **pm2** to keep the process running:
+```bash
+sudo npm install -g pm2
+
+cd /opt/radiostream/backend
+JWT_SECRET=your-secret ADMIN_PASSWORD=YourPass123! pm2 start dist/index.js --name radiostream
+pm2 save
+pm2 startup  # follow the instructions to auto-start on boot
+```
 
 ## 📁 Data Model
 
