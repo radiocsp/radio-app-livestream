@@ -293,12 +293,34 @@ function SourcesTab({ stationId, sources, reload }: { stationId: string; sources
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [priority, setPriority] = useState(0);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const add = async () => {
     if (!name || !url) return;
     await api.addSource(stationId, { name, url, priority });
     setName(''); setUrl(''); setPriority(0);
     reload();
+  };
+
+  const testSource = async (sourceId: string, sourceUrl: string) => {
+    setTesting(sourceId);
+    setTestResult(prev => ({ ...prev, [sourceId]: { ok: false, msg: 'Testing...' } }));
+    try {
+      const result = await api.testAudio(sourceUrl);
+      setTestResult(prev => ({
+        ...prev,
+        [sourceId]: {
+          ok: result.success || result.reachable,
+          msg: result.success || result.reachable
+            ? `✅ Reachable${result.latency_ms ? ` (${result.latency_ms}ms)` : ''}${result.codec ? ` — ${result.codec}` : ''}`
+            : `❌ ${result.error || 'Unreachable'}`
+        }
+      }));
+    } catch (err: any) {
+      setTestResult(prev => ({ ...prev, [sourceId]: { ok: false, msg: `❌ ${err.message}` } }));
+    }
+    setTesting(null);
   };
 
   return (
@@ -313,21 +335,61 @@ function SourcesTab({ stationId, sources, reload }: { stationId: string; sources
             <button onClick={add} className="btn-primary whitespace-nowrap" disabled={!name || !url}>Add</button>
           </div>
         </div>
+
+        {/* URL Examples */}
+        <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-4 py-3 space-y-1.5">
+          <p className="text-xs font-medium text-gray-400">📡 Supported URL formats:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+            <div>
+              <p className="text-[11px] text-indigo-400 font-medium">Icecast / Shoutcast:</p>
+              <p className="text-[11px] text-gray-500 font-mono">http://your-server:8000/stream</p>
+              <p className="text-[11px] text-gray-500 font-mono">https://cast.example.com/radio.mp3</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-indigo-400 font-medium">AzuraCast:</p>
+              <p className="text-[11px] text-gray-500 font-mono">https://radio.example.com/listen/station/radio.mp3</p>
+              <p className="text-[11px] text-gray-500 font-mono">https://radio.example.com/api/nowplaying/1</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-indigo-400 font-medium">Direct stream:</p>
+              <p className="text-[11px] text-gray-500 font-mono">http://stream.example.com:8080/live.aac</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-indigo-400 font-medium">HLS / M3U8:</p>
+              <p className="text-[11px] text-gray-500 font-mono">https://example.com/stream/playlist.m3u8</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-600 mt-1">💡 Priority: lower number = higher priority (0 = primary, 1 = fallback). After adding, use the Test button to verify connectivity.</p>
+        </div>
       </div>
 
       {sources.map(src => (
-        <div key={src.id} className={`card flex items-center gap-4 ${!src.is_enabled ? 'opacity-50' : ''}`}>
-          <div className={`w-2 h-2 rounded-full ${src.status === 'healthy' ? 'bg-emerald-400' : src.status === 'unreachable' ? 'bg-red-400' : 'bg-gray-600'}`} />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-white">{src.name}</p>
-            <p className="text-xs text-gray-500 font-mono truncate">{src.url}</p>
+        <div key={src.id} className="card space-y-2">
+          <div className={`flex items-center gap-4 ${!src.is_enabled ? 'opacity-50' : ''}`}>
+            <div className={`w-2 h-2 rounded-full ${src.status === 'healthy' ? 'bg-emerald-400' : src.status === 'unreachable' ? 'bg-red-400' : 'bg-gray-600'}`} />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white">{src.name}</p>
+              <p className="text-xs text-gray-500 font-mono truncate">{src.url}</p>
+            </div>
+            <span className="text-xs text-gray-500">P{src.priority}</span>
+            {src.last_latency_ms != null && <span className="text-xs text-gray-500">{src.last_latency_ms}ms</span>}
+            <button
+              onClick={() => testSource(src.id, src.url)}
+              disabled={testing === src.id}
+              className="px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 disabled:opacity-50 transition whitespace-nowrap"
+            >
+              {testing === src.id ? '⏳ Testing...' : '🔍 Test'}
+            </button>
+            <button onClick={async () => { await api.updateSource(stationId, src.id, { is_enabled: src.is_enabled ? 0 : 1 }); reload(); }}
+              className="p-1.5 rounded hover:bg-gray-800 text-gray-500">{src.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
+            <button onClick={async () => { await api.deleteSource(stationId, src.id); reload(); }}
+              className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
           </div>
-          <span className="text-xs text-gray-500">P{src.priority}</span>
-          {src.last_latency_ms != null && <span className="text-xs text-gray-500">{src.last_latency_ms}ms</span>}
-          <button onClick={async () => { await api.updateSource(stationId, src.id, { is_enabled: src.is_enabled ? 0 : 1 }); reload(); }}
-            className="p-1.5 rounded hover:bg-gray-800 text-gray-500">{src.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
-          <button onClick={async () => { await api.deleteSource(stationId, src.id); reload(); }}
-            className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+          {testResult[src.id] && (
+            <div className={`text-xs px-3 py-1.5 rounded-md ${testResult[src.id].ok ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+              {testResult[src.id].msg}
+            </div>
+          )}
         </div>
       ))}
     </div>
