@@ -122,6 +122,20 @@ async function main() {
     return getSystemHealth();
   });
 
+  // ─── SPA fallback: serve index.html for non-API routes ──
+  app.setNotFoundHandler(async (request, reply) => {
+    const url = request.url;
+    // Don't intercept API routes — return proper 404
+    if (url.startsWith('/api/')) {
+      return reply.code(404).send({ error: 'Route not found' });
+    }
+    // Serve index.html for all other routes (React Router SPA)
+    if (fs.existsSync(frontendDist)) {
+      return reply.sendFile('index.html', frontendDist);
+    }
+    return reply.code(404).send({ error: 'Not found' });
+  });
+
   // ─── Start server ────────────────────────────────────────
   try {
     await app.listen({ port: PORT, host: HOST });
