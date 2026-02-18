@@ -77,7 +77,7 @@ export const api = {
   deletePlaylistItem: (stationId: string, itemId: string) =>
     request<any>(`/stations/${stationId}/playlist/${itemId}`, { method: 'DELETE' }),
   applyPlaylist: (stationId: string) =>
-    request<any>(`/stations/${stationId}/playlist/apply`, { method: 'POST' }),
+    request<any>(`/stations/${stationId}/playlist/apply`, { method: 'POST', body: JSON.stringify({}) }),
 
   // RTMP destinations
   addDestination: (stationId: string, data: { name: string; platform: string; rtmp_url: string; stream_key?: string }) =>
@@ -93,7 +93,7 @@ export const api = {
     request<any>('/test/nowplaying', { method: 'POST', body: JSON.stringify(data) }),
   testRtmp: (data: { rtmp_url: string; stream_key?: string }) =>
     request<any>('/test/rtmp', { method: 'POST', body: JSON.stringify(data) }),
-  healthCheck: (stationId: string) => request<any>(`/stations/${stationId}/healthcheck`, { method: 'POST' }),
+  healthCheck: (stationId: string) => request<any>(`/stations/${stationId}/healthcheck`, { method: 'POST', body: JSON.stringify({}) }),
 
   // Preview
   getPreviewUrl: (stationId: string) => `${API}/stations/${stationId}/preview?t=${Date.now()}`,

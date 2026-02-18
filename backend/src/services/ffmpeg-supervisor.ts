@@ -170,7 +170,7 @@ export class FFmpegSupervisor extends EventEmitter {
     this.nowPlayingServices.set(stationId, np);
   }
 
-  private launchFFmpeg(stationId: string, station: any, stationDir: string): void {
+  private async launchFFmpeg(stationId: string, station: any, stationDir: string): Promise<void> {
     const db = getDb();
 
     // Get active audio source (highest priority enabled source)
@@ -204,9 +204,10 @@ export class FFmpegSupervisor extends EventEmitter {
       return;
     }
 
-    // Build overlay drawtext filter
+    // Build overlay drawtext filter (only if FFmpeg supports it)
     const overlayParts: string[] = [];
-    if (station.overlay_enabled) {
+    const hasDrawtext = await this.checkDrawtextSupport();
+    if (station.overlay_enabled && hasDrawtext) {
       const posMap: Record<string, string> = {
         'bottom-left': `x=${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}`,
         'bottom-center': `x=(w-tw)/2:y=h-th-${station.overlay_margin_y}`,
