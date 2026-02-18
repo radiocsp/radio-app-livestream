@@ -233,7 +233,7 @@ export default function StationDetail({ sse }: Props) {
         {tab === 'playlist' && (
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <input ref={fileInputRef} type="file" accept="video/mp4,video/*" multiple className="hidden" onChange={handleUpload} />
+              <input ref={fileInputRef} type="file" accept="video/mp4,video/*" multiple className="hidden" onChange={handleUpload} title="Upload video files" />
               <button onClick={() => fileInputRef.current?.click()} className="btn-primary flex items-center gap-2" disabled={uploading}>
                 <Upload className="w-4 h-4" /> {uploading ? 'Uploading...' : 'Upload MP4'}
               </button>
@@ -260,13 +260,13 @@ export default function StationDetail({ sse }: Props) {
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => moveItem(index, 'up')} disabled={index === 0}
-                        className="p-1 rounded hover:bg-gray-800 text-gray-500 disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
+                        title="Move up" className="p-1 rounded hover:bg-gray-800 text-gray-500 disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
                       <button onClick={() => moveItem(index, 'down')} disabled={index === playlist.length - 1}
-                        className="p-1 rounded hover:bg-gray-800 text-gray-500 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
+                        title="Move down" className="p-1 rounded hover:bg-gray-800 text-gray-500 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
                       <button onClick={() => togglePlaylistItem(item)}
-                        className="p-1 rounded hover:bg-gray-800 text-gray-500">{item.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
+                        title="Toggle visibility" className="p-1 rounded hover:bg-gray-800 text-gray-500">{item.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
                       <button onClick={() => deletePlaylistItem(item.id)}
-                        className="p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                        title="Delete item" className="p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
                 ))}
@@ -412,9 +412,9 @@ function SourcesTab({ stationId, sources, reload }: { stationId: string; sources
               {testing === src.id ? '⏳ Testing...' : '🔍 Test'}
             </button>
             <button onClick={async () => { await api.updateSource(stationId, src.id, { is_enabled: src.is_enabled ? 0 : 1 }); reload(); }}
-              className="p-1.5 rounded hover:bg-gray-800 text-gray-500">{src.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
+              title="Toggle source" className="p-1.5 rounded hover:bg-gray-800 text-gray-500">{src.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
             <button onClick={async () => { await api.deleteSource(stationId, src.id); reload(); }}
-              className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+              title="Delete source" className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
           </div>
           {testResult[src.id] && (
             <div className={`text-xs px-3 py-1.5 rounded-md ${testResult[src.id].ok ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
@@ -453,7 +453,7 @@ function DestinationsTab({ stationId, destinations, reload }: { stationId: strin
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Add RTMP Destination</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <input className="input-field" placeholder="Destination Name" value={name} onChange={e => setName(e.target.value)} />
-          <select className="select-field" value={platform} onChange={e => { setPlatform(e.target.value); setRtmpUrl(platformPresets[e.target.value] || ''); }}>
+          <select className="select-field" title="Platform" value={platform} onChange={e => { setPlatform(e.target.value); setRtmpUrl(platformPresets[e.target.value] || ''); }}>
             <option value="youtube">YouTube</option>
             <option value="facebook">Facebook</option>
             <option value="restream">Restream</option>
@@ -479,9 +479,9 @@ function DestinationsTab({ stationId, destinations, reload }: { stationId: strin
           </div>
           <span className={statusColor(dest.status)}>{dest.status}</span>
           <button onClick={async () => { await api.updateDestination(stationId, dest.id, { is_enabled: dest.is_enabled ? 0 : 1 }); reload(); }}
-            className="p-1.5 rounded hover:bg-gray-800 text-gray-500">{dest.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
+            title="Toggle destination" className="p-1.5 rounded hover:bg-gray-800 text-gray-500">{dest.is_enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}</button>
           <button onClick={async () => { await api.deleteDestination(stationId, dest.id); reload(); }}
-            className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+            title="Delete destination" className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
         </div>
       ))}
     </div>
@@ -535,7 +535,7 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Position</label>
-            <select className="select-field" value={position} onChange={e => setPosition(e.target.value)}>
+            <select className="select-field" title="Position" value={position} onChange={e => setPosition(e.target.value)}>
               <option value="bottom-left">Bottom Left</option>
               <option value="bottom-center">Bottom Center</option>
               <option value="bottom-right">Bottom Right</option>
@@ -546,7 +546,7 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Font Size</label>
-            <input className="input-field" type="number" value={fontSize} onChange={e => setFontSize(Number(e.target.value))} />
+            <input className="input-field" type="number" title="Font Size" value={fontSize} onChange={e => setFontSize(Number(e.target.value))} />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Font Color</label>
@@ -559,21 +559,21 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Shadow X / Y</label>
             <div className="flex gap-2">
-              <input className="input-field" type="number" value={shadowX} onChange={e => setShadowX(Number(e.target.value))} />
-              <input className="input-field" type="number" value={shadowY} onChange={e => setShadowY(Number(e.target.value))} />
+              <input className="input-field" type="number" title="Shadow X" value={shadowX} onChange={e => setShadowX(Number(e.target.value))} />
+              <input className="input-field" type="number" title="Shadow Y" value={shadowY} onChange={e => setShadowY(Number(e.target.value))} />
             </div>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Outline Width</label>
-            <input className="input-field" type="number" value={outlineW} onChange={e => setOutlineW(Number(e.target.value))} />
+            <input className="input-field" type="number" title="Outline Width" value={outlineW} onChange={e => setOutlineW(Number(e.target.value))} />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Margin X</label>
-            <input className="input-field" type="number" value={marginX} onChange={e => setMarginX(Number(e.target.value))} />
+            <input className="input-field" type="number" title="Margin X" value={marginX} onChange={e => setMarginX(Number(e.target.value))} />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Margin Y</label>
-            <input className="input-field" type="number" value={marginY} onChange={e => setMarginY(Number(e.target.value))} />
+            <input className="input-field" type="number" title="Margin Y" value={marginY} onChange={e => setMarginY(Number(e.target.value))} />
           </div>
         </div>
       </div>
@@ -583,7 +583,7 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Mode</label>
-            <select className="select-field" value={npMode} onChange={e => setNpMode(e.target.value)}>
+            <select className="select-field" title="Now Playing Mode" value={npMode} onChange={e => setNpMode(e.target.value)}>
               <option value="azuracast">AzuraCast API</option>
               <option value="icecast">Icecast status-json.xsl</option>
             </select>
@@ -749,7 +749,7 @@ function SettingsTab({ station, updateStation }: { station: Station; updateStati
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">FPS</label>
-            <input className="input-field" type="number" value={fps} onChange={e => setFps(Number(e.target.value))} />
+            <input className="input-field" type="number" title="FPS" value={fps} onChange={e => setFps(Number(e.target.value))} />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Audio Bitrate</label>
@@ -767,11 +767,11 @@ function SettingsTab({ station, updateStation }: { station: Station; updateStati
           </label>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Restart Delay (sec)</label>
-            <input className="input-field" type="number" value={restartDelay} onChange={e => setRestartDelay(Number(e.target.value))} />
+            <input className="input-field" type="number" title="Restart Delay" value={restartDelay} onChange={e => setRestartDelay(Number(e.target.value))} />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Max Attempts</label>
-            <input className="input-field" type="number" value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))} />
+            <input className="input-field" type="number" title="Max Attempts" value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))} />
           </div>
         </div>
       </div>
