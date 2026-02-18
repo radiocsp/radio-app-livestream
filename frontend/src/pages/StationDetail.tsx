@@ -26,6 +26,8 @@ export default function StationDetail({ sse }: Props) {
   const [logs, setLogs] = useState<StationLog[]>([]);
   const [tab, setTab] = useState<Tab>('playlist');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -116,8 +118,25 @@ export default function StationDetail({ sse }: Props) {
     load();
   };
 
-  const generatePreview = () => {
-    setPreviewUrl(api.getPreviewUrl(id));
+  const generatePreview = async () => {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewUrl(null);
+    try {
+      const url = api.getPreviewUrl(id);
+      // Verify the image loads before displaying
+      const res = await fetch(url);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || `Server returned ${res.status}`);
+      }
+      const blob = await res.blob();
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (err: any) {
+      setPreviewError(err.message || 'Failed to generate preview');
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const updateStation = async (data: Record<string, any>) => {
@@ -166,23 +185,33 @@ export default function StationDetail({ sse }: Props) {
           <RotateCw className="w-4 h-4" /> Restart
         </button>
         <div className="flex-1" />
-        <button onClick={generatePreview} className="btn-secondary flex items-center gap-2">
-          <Image className="w-4 h-4" /> Preview Snapshot
-        </button>
+        <button onClick={generatePreview} disabled={previewLoading} className="btn-secondary flex items-center gap-2">
+               <Image className="w-4 h-4" /> {previewLoading ? 'Generating...' : 'Preview Snapshot'}
+              </button>
       </div>
 
       {/* Preview */}
+      {previewLoading && (
+        <div className="card text-center py-8">
+          <div className="animate-spin w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full mx-auto mb-3"></div>
+          <p className="text-gray-400 text-sm">Generating preview with FFmpeg...</p>
+        </div>
+      )}
+      {previewError && (
+        <div className="card bg-red-900/20 border border-red-800">
+          <p className="text-red-400 text-sm">✗ Preview failed: {previewError}</p>
+          <p className="text-gray-500 text-xs mt-1">Make sure a playlist with videos is configured and FFmpeg is available.</p>
+        </div>
+      )}
       {previewUrl && (
         <div className="card">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Preview</h3>
-            <button onClick={() => setPreviewUrl(null)} className="text-gray-600 hover:text-gray-400">✕</button>
-          </div>
+                <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Preview</h3>
+                <button onClick={() => { setPreviewUrl(null); setPreviewError(null); }} className="text-gray-600 hover:text-gray-400">✕</button>
+              </div>
           <img src={previewUrl} alt="Station preview" className="w-full rounded-lg border border-gray-800" />
-        </div>
-      )}
-
-      {/* Tabs */}
+              </div>
+      )}      {/* Tabs */}
       <div className="flex gap-1 overflow-x-auto border-b border-gray-800 pb-px">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}

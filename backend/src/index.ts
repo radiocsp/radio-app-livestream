@@ -130,8 +130,10 @@ async function main() {
       return reply.code(404).send({ error: 'Route not found' });
     }
     // Serve index.html for all other routes (React Router SPA)
-    if (fs.existsSync(frontendDist)) {
-      return reply.sendFile('index.html', frontendDist);
+    const indexPath = path.join(frontendDist, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      const html = fs.readFileSync(indexPath, 'utf-8');
+      return reply.type('text/html').send(html);
     }
     return reply.code(404).send({ error: 'Not found' });
   });

@@ -46,9 +46,9 @@ export const api = {
     request<any>(`/stations/${id}`, { method: 'DELETE' }),
 
   // Controls
-  startStation: (id: string) => request<any>(`/stations/${id}/start`, { method: 'POST' }),
-  stopStation: (id: string) => request<any>(`/stations/${id}/stop`, { method: 'POST' }),
-  restartStation: (id: string) => request<any>(`/stations/${id}/restart`, { method: 'POST' }),
+  startStation: (id: string) => request<any>(`/stations/${id}/start`, { method: 'POST', body: JSON.stringify({}) }),
+  stopStation: (id: string) => request<any>(`/stations/${id}/stop`, { method: 'POST', body: JSON.stringify({}) }),
+  restartStation: (id: string) => request<any>(`/stations/${id}/restart`, { method: 'POST', body: JSON.stringify({}) }),
 
   // Audio sources
   addSource: (stationId: string, data: { name: string; url: string; priority?: number }) =>
