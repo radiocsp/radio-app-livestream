@@ -34,6 +34,8 @@ declare module '@fastify/jwt' {
 const PUBLIC_ROUTES = new Set([
   '/api/auth/login',
   '/api/auth/refresh',
+  '/api/events',        // SSE — EventSource can't send custom headers
+  '/api/system/health', // health check for monitoring
 ]);
 
 const jwtAuthPlugin: FastifyPluginAsync = async (fastify) => {
