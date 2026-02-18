@@ -3,6 +3,7 @@ import { useSSE } from './hooks/useSSE';
 import { useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import StationDetail from './pages/StationDetail';
+import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 
@@ -24,6 +25,7 @@ function AppShell() {
         <Routes>
           <Route path="/" element={<Dashboard sse={sse} />} />
           <Route path="/station/:id" element={<StationDetail sse={sse} />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </div>

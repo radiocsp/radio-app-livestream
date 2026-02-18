@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Radio, LayoutDashboard, Wifi, WifiOff, LogOut, User, Shield } from 'lucide-react';
+import { Radio, LayoutDashboard, Wifi, WifiOff, LogOut, User, Shield, Settings } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
@@ -43,6 +43,17 @@ export default function Sidebar({ connected }: SidebarProps) {
         >
           <LayoutDashboard className="w-4 h-4" />
           Dashboard
+        </Link>
+        <Link
+          to="/settings"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+            location.pathname === '/settings'
+              ? 'bg-brand-600/20 text-brand-400'
+              : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          Settings
         </Link>
       </nav>
 
