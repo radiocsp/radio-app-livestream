@@ -124,8 +124,10 @@ export default function StationDetail({ sse }: Props) {
     setPreviewUrl(null);
     try {
       const url = api.getPreviewUrl(id);
-      // Verify the image loads before displaying
-      const res = await fetch(url);
+      const token = localStorage.getItem('rss_token') || sessionStorage.getItem('rss_token');
+      const res = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
         throw new Error(errData?.error || `Server returned ${res.status}`);
