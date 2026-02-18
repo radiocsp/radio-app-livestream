@@ -228,7 +228,7 @@ export class FFmpegSupervisor extends EventEmitter {
       }
 
       overlayParts.push(
-        `drawtext=textfile='${textFilePath}':reload=1:${pos}:${fontSpec}`
+        `drawtext=textfile='${textFilePath.replace(/\\/g, '\\\\\\\\').replace(/:/g, '\\\\:').replace(/'/g, "'\\\\''")}':reload=1:${pos}:${fontSpec}`
       );
     }
 
@@ -348,7 +348,10 @@ export class FFmpegSupervisor extends EventEmitter {
 
     // Build filter for preview
     let vf = `scale=${station.video_width}:${station.video_height}`;
-    if (station.overlay_enabled && fs.existsSync(textFilePath)) {
+
+    // Only add drawtext if overlay is enabled AND drawtext filter is available
+    const hasDrawtext = await this.checkDrawtextSupport();
+    if (station.overlay_enabled && fs.existsSync(textFilePath) && hasDrawtext) {
       const posMap: Record<string, string> = {
         'bottom-left': `x=${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}`,
         'bottom-center': `x=(w-tw)/2:y=h-th-${station.overlay_margin_y}`,
@@ -364,7 +367,9 @@ export class FFmpegSupervisor extends EventEmitter {
       if (station.overlay_bg_color) {
         fontSpec += `:box=1:boxcolor=${station.overlay_bg_color}:boxborderw=8`;
       }
-      vf += `,drawtext=textfile='${textFilePath}':reload=1:${pos}:${fontSpec}`;
+      // Escape special chars for drawtext path (colons, backslashes, single quotes)
+      const escapedTextFile = textFilePath.replace(/\\/g, '\\\\\\\\').replace(/:/g, '\\\\:').replace(/'/g, "'\\\\''");
+      vf += `,drawtext=textfile='${escapedTextFile}':reload=1:${pos}:${fontSpec}`;
     }
 
     return new Promise((resolve) => {
@@ -372,19 +377,48 @@ export class FFmpegSupervisor extends EventEmitter {
         '-y', '-f', 'concat', '-safe', '0', '-i', playlistPath,
         '-vf', vf,
         '-frames:v', '1',
+        '-update', '1',
         '-q:v', '2',
         previewPath,
       ];
 
       const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderrData = '';
+      proc.stderr?.on('data', (chunk: Buffer) => { stderrData += chunk.toString(); });
       proc.on('close', (code) => {
         if (code === 0 && fs.existsSync(previewPath)) {
           resolve(previewPath);
         } else {
+          console.error(`[Preview] ffmpeg exited with code ${code} for station ${stationId}`);
+          if (stderrData) console.error(`[Preview] stderr: ${stderrData.slice(-500)}`);
           resolve(null);
         }
       });
-      proc.on('error', () => resolve(null));
+      proc.on('error', (err) => {
+        console.error(`[Preview] spawn error: ${err.message}`);
+        resolve(null);
+      });
+    });
+  }
+
+  private _drawtextSupported: boolean | null = null;
+  private async checkDrawtextSupport(): Promise<boolean> {
+    if (this._drawtextSupported !== null) return this._drawtextSupported;
+    return new Promise((resolve) => {
+      const proc = spawn('ffmpeg', ['-filters'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = '';
+      proc.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+      proc.on('close', () => {
+        this._drawtextSupported = output.includes('drawtext');
+        if (!this._drawtextSupported) {
+          console.warn('[FFmpeg] drawtext filter not available — overlay will be skipped in preview. Install ffmpeg with --enable-libfreetype for overlay support.');
+        }
+        resolve(this._drawtextSupported);
+      });
+      proc.on('error', () => {
+        this._drawtextSupported = false;
+        resolve(false);
+      });
     });
   }
 
