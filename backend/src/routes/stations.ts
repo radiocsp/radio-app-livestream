@@ -242,7 +242,7 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
       const destId = uuid();
       const { name, platform, rtmp_url, stream_key } = req.body;
       db.prepare('INSERT INTO rtmp_destinations (id, station_id, name, platform, rtmp_url, stream_key) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(destId, req.params.id, name, platform, rtmp_url, stream_key || '');
+        .run(destId, req.params.id, name.trim(), platform, (rtmp_url || '').trim(), (stream_key || '').trim());
       return db.prepare('SELECT * FROM rtmp_destinations WHERE id = ?').get(destId);
     }
   );
@@ -256,7 +256,11 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
       for (const key of allowed) {
         if (req.body[key] !== undefined) {
           updates.push(`${key} = ?`);
-          values.push(req.body[key]);
+          // Trim whitespace from URL fields
+          const val = (key === 'rtmp_url' || key === 'stream_key') && typeof req.body[key] === 'string'
+            ? req.body[key].trim()
+            : req.body[key];
+          values.push(val);
         }
       }
       if (updates.length > 0) {
