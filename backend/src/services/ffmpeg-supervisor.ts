@@ -121,7 +121,7 @@ export class FFmpegSupervisor extends EventEmitter {
     }
 
     const items = db.prepare(
-      'SELECT filename FROM playlist_items WHERE station_id = ? AND is_enabled = 1 ORDER BY sort_order ASC'
+      'SELECT filename, duration_sec FROM playlist_items WHERE station_id = ? AND is_enabled = 1 ORDER BY sort_order ASC'
     ).all(stationId) as any[];
 
     const stationDir = path.join(this.dataDir, 'stations', slug!);
@@ -130,11 +130,14 @@ export class FFmpegSupervisor extends EventEmitter {
     const uploadsDir = path.join(__dirname, '..', '..', 'uploads', stationId);
     const lines = items.map(i => `file '${path.join(uploadsDir, i.filename)}'`);
 
-    // Repeat the entire playlist many times for 24/7 looping
+    // Calculate how many repeats needed for 24h of content
     // FFmpeg concat demuxer plays sequentially; -stream_loop doesn't work reliably with concat
-    // 500 repeats × average 5min video = ~41 hours; FFmpeg auto-restarts after that
+    const totalDurationSec = items.reduce((sum: number, i: any) => sum + (i.duration_sec || 300), 0);
+    const hoursTarget = 24;
+    const repeats = Math.max(2, Math.ceil((hoursTarget * 3600) / totalDurationSec));
+
     const repeatedLines: string[] = [];
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < repeats; i++) {
       repeatedLines.push(...lines);
     }
 
@@ -144,7 +147,7 @@ export class FFmpegSupervisor extends EventEmitter {
     fs.writeFileSync(tempPath, repeatedLines.join('\n') + '\n');
     fs.renameSync(tempPath, playlistPath);
 
-    this.emit('log', stationId, 'info', 'app', `Playlist updated: ${items.length} items`);
+    this.emit('log', stationId, 'info', 'app', `Playlist updated: ${items.length} items × ${repeats} repeats (${Math.round(totalDurationSec * repeats / 3600)}h)`);
   }
 
   private startNowPlaying(stationId: string, station: any): void {
