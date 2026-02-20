@@ -249,9 +249,14 @@ export class FFmpegSupervisor extends EventEmitter {
       '-maxrate', station.video_bitrate,
       '-bufsize', `${parseInt(station.video_bitrate) * 2}k`,
       '-r', String(station.video_fps),
+      '-g', String(station.video_fps * 2),       // Keyframe every 2 seconds (YouTube requirement)
+      '-keyint_min', String(station.video_fps),   // Min keyframe interval
+      '-pix_fmt', 'yuv420p',                      // Force pixel format (YouTube requirement)
       '-s', `${station.video_width}x${station.video_height}`,
       '-vf', videoFilter,
       '-c:a', 'aac', '-b:a', station.audio_bitrate, '-ar', '44100',
+      '-strict', 'experimental',
+      '-flags', '+global_header',                 // Required for FLV streaming
     ];
 
     // Output: single destination = simple FLV, multiple = tee muxer
