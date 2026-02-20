@@ -302,16 +302,21 @@ export class FFmpegSupervisor extends EventEmitter {
       }
     }
 
-    const videoFilter = overlayParts.length > 0
-      ? overlayParts.join(',')
-      : 'null';
+    // Normalize framerate from input to handle videos with different FPS (e.g. 34fps → 30fps)
+    // This prevents FFmpeg from stalling at video transitions in the concat playlist
+    const fpsFilter = `fps=${station.video_fps}`;
+    const scaleFilter = `scale=${station.video_width}:${station.video_height}:force_original_aspect_ratio=decrease,pad=${station.video_width}:${station.video_height}:(ow-iw)/2:(oh-ih)/2`;
+    const filterParts = [fpsFilter, scaleFilter, ...overlayParts];
+    const videoFilter = filterParts.join(',');
 
     // Build FFmpeg args
     const args: string[] = [
+      '-fflags', '+genpts+discardcorrupt',        // Regenerate PTS to fix timestamp jumps at concat transitions
       '-re',
       '-f', 'concat', '-safe', '0', '-i', playlistPath,
       '-i', audioSource.url,
       '-map', '0:v', '-map', '1:a',
+      '-vsync', 'cfr',                            // Constant frame rate output (prevents stall at transitions)
       '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
       '-b:v', station.video_bitrate,
       '-maxrate', station.video_bitrate,
@@ -320,7 +325,6 @@ export class FFmpegSupervisor extends EventEmitter {
       '-g', String(station.video_fps * 2),       // Keyframe every 2 seconds (YouTube requirement)
       '-keyint_min', String(station.video_fps),   // Min keyframe interval
       '-pix_fmt', 'yuv420p',                      // Force pixel format (YouTube requirement)
-      '-s', `${station.video_width}x${station.video_height}`,
       '-vf', videoFilter,
       '-c:a', 'aac', '-b:a', station.audio_bitrate, '-ar', '44100',
       '-strict', 'experimental',
