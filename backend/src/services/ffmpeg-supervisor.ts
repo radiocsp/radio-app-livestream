@@ -252,25 +252,20 @@ export class FFmpegSupervisor extends EventEmitter {
       '-s', `${station.video_width}x${station.video_height}`,
       '-vf', videoFilter,
       '-c:a', 'aac', '-b:a', station.audio_bitrate, '-ar', '44100',
-      '-f', 'flv',
-      '-flvflags', 'no_duration_filesize',
     ];
 
-    // Multi-destination using tee muxer
+    // Output: single destination = simple FLV, multiple = tee muxer
     if (destinations.length === 1) {
       const dest = destinations[0];
       const url = dest.stream_key ? `${dest.rtmp_url}/${dest.stream_key}` : dest.rtmp_url;
-      args.push(url);
+      args.push('-f', 'flv', '-flvflags', 'no_duration_filesize', url);
     } else {
-      // Use tee muxer for multiple destinations
-      args.pop(); // remove -f flv
-      args.pop(); // remove -flvflags
-      args.push('-f', 'tee', '-map', '0:v', '-map', '1:a');
+      // tee muxer: single video+audio stream copied to N destinations
       const teeOutputs = destinations.map(d => {
         const url = d.stream_key ? `${d.rtmp_url}/${d.stream_key}` : d.rtmp_url;
         return `[f=flv:flvflags=no_duration_filesize]${url}`;
       });
-      args.push(teeOutputs.join('|'));
+      args.push('-f', 'tee', teeOutputs.join('|'));
     }
 
     this.emit('log', stationId, 'info', 'app', `Launching FFmpeg with ${destinations.length} destination(s)`);
