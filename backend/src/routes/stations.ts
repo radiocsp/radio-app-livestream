@@ -49,16 +49,16 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
     const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id) as any;
     if (!station) return { error: 'Station not found' };
 
-    const allowed = [
-      'name', 'slug', 'overlay_enabled', 'overlay_font_size', 'overlay_font_color',
-      'overlay_bg_color', 'overlay_position', 'overlay_font_file', 'overlay_shadow_x',
-      'overlay_shadow_y', 'overlay_outline_width', 'overlay_margin_x', 'overlay_margin_y',
-      'np_mode', 'np_azuracast_url', 'np_azuracast_station', 'np_icecast_url', 'np_poll_interval',
-      'video_width', 'video_height', 'video_bitrate', 'video_fps', 'audio_bitrate',
-      'auto_restart', 'restart_delay_sec', 'max_restart_attempts',
-    ];
-
-    const updates: string[] = [];
+      const allowed = [
+        'name', 'slug', 'overlay_enabled', 'overlay_font_size', 'overlay_font_color',
+        'overlay_font_family', 'overlay_bg_color', 'overlay_position', 'overlay_font_file',
+        'overlay_shadow_x', 'overlay_shadow_y', 'overlay_outline_width',
+        'overlay_margin_x', 'overlay_margin_y',
+        'overlay_title', 'overlay_title_font_size', 'overlay_title_font_color',
+        'np_mode', 'np_azuracast_url', 'np_azuracast_station', 'np_icecast_url', 'np_poll_interval',
+        'video_width', 'video_height', 'video_bitrate', 'video_fps', 'audio_bitrate',
+        'auto_restart', 'restart_delay_sec', 'max_restart_attempts',
+      ];    const updates: string[] = [];
     const values: any[] = [];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

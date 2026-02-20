@@ -218,7 +218,11 @@ export class FFmpegSupervisor extends EventEmitter {
       };
       const pos = posMap[station.overlay_position] || posMap['bottom-left'];
 
+      // Font specification for track text
       let fontSpec = `fontsize=${station.overlay_font_size}:fontcolor=${station.overlay_font_color}`;
+      if (station.overlay_font_family) {
+        fontSpec += `:font='${station.overlay_font_family}'`;
+      }
       if (station.overlay_font_file) {
         fontSpec += `:fontfile='${station.overlay_font_file}'`;
       }
@@ -228,9 +232,63 @@ export class FFmpegSupervisor extends EventEmitter {
         fontSpec += `:box=1:boxcolor=${station.overlay_bg_color}:boxborderw=8`;
       }
 
-      overlayParts.push(
-        `drawtext=textfile='${textFilePath.replace(/\\/g, '\\\\\\\\').replace(/:/g, '\\\\:').replace(/'/g, "'\\\\''")}':reload=1:${pos}:${fontSpec}`
-      );
+      const escapedPath = textFilePath.replace(/\\/g, '\\\\\\\\').replace(/:/g, '\\\\:').replace(/'/g, "'\\\\''");
+
+      // If title label is set (e.g. "Ascultă acum:"), add it as a separate drawtext above the track
+      if (station.overlay_title) {
+        // Calculate title position: same as track but shifted up by track font size + gap
+        const titleGap = station.overlay_font_size + 8;
+        const titlePosMap: Record<string, string> = {
+          'bottom-left': `x=${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}-${titleGap}`,
+          'bottom-center': `x=(w-tw)/2:y=h-th-${station.overlay_margin_y}-${titleGap}`,
+          'bottom-right': `x=w-tw-${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}-${titleGap}`,
+          'top-left': `x=${station.overlay_margin_x}:y=${station.overlay_margin_y}`,
+          'top-center': `x=(w-tw)/2:y=${station.overlay_margin_y}`,
+          'top-right': `x=w-tw-${station.overlay_margin_x}:y=${station.overlay_margin_y}`,
+        };
+        const titlePos = titlePosMap[station.overlay_position] || titlePosMap['bottom-left'];
+
+        let titleFontSpec = `fontsize=${station.overlay_title_font_size || 22}:fontcolor=${station.overlay_title_font_color || 'yellow'}`;
+        if (station.overlay_font_family) {
+          titleFontSpec += `:font='${station.overlay_font_family}'`;
+        }
+        if (station.overlay_font_file) {
+          titleFontSpec += `:fontfile='${station.overlay_font_file}'`;
+        }
+        titleFontSpec += `:shadowx=${station.overlay_shadow_x}:shadowy=${station.overlay_shadow_y}`;
+        titleFontSpec += `:borderw=${station.overlay_outline_width}`;
+        if (station.overlay_bg_color) {
+          titleFontSpec += `:box=1:boxcolor=${station.overlay_bg_color}:boxborderw=8`;
+        }
+
+        const escapedTitle = station.overlay_title.replace(/:/g, '\\:').replace(/'/g, "'\\''");
+        overlayParts.push(
+          `drawtext=text='${escapedTitle}':${titlePos}:${titleFontSpec}`
+        );
+
+        // For top positions, shift track text DOWN below the title
+        if (station.overlay_position?.startsWith('top')) {
+          const trackShift = (station.overlay_title_font_size || 22) + 8;
+          const trackPosMap: Record<string, string> = {
+            'top-left': `x=${station.overlay_margin_x}:y=${station.overlay_margin_y}+${trackShift}`,
+            'top-center': `x=(w-tw)/2:y=${station.overlay_margin_y}+${trackShift}`,
+            'top-right': `x=w-tw-${station.overlay_margin_x}:y=${station.overlay_margin_y}+${trackShift}`,
+          };
+          const trackPos = trackPosMap[station.overlay_position] || pos;
+          overlayParts.push(
+            `drawtext=textfile='${escapedPath}':reload=1:${trackPos}:${fontSpec}`
+          );
+        } else {
+          overlayParts.push(
+            `drawtext=textfile='${escapedPath}':reload=1:${pos}:${fontSpec}`
+          );
+        }
+      } else {
+        // No title — just the track text
+        overlayParts.push(
+          `drawtext=textfile='${escapedPath}':reload=1:${pos}:${fontSpec}`
+        );
+      }
     }
 
     const videoFilter = overlayParts.length > 0
@@ -363,14 +421,55 @@ export class FFmpegSupervisor extends EventEmitter {
       };
       const pos = posMap[station.overlay_position] || posMap['bottom-left'];
       let fontSpec = `fontsize=${station.overlay_font_size}:fontcolor=${station.overlay_font_color}`;
+      if (station.overlay_font_family) {
+        fontSpec += `:font='${station.overlay_font_family}'`;
+      }
+      if (station.overlay_font_file) {
+        fontSpec += `:fontfile='${station.overlay_font_file}'`;
+      }
       fontSpec += `:shadowx=${station.overlay_shadow_x}:shadowy=${station.overlay_shadow_y}`;
       fontSpec += `:borderw=${station.overlay_outline_width}`;
       if (station.overlay_bg_color) {
         fontSpec += `:box=1:boxcolor=${station.overlay_bg_color}:boxborderw=8`;
       }
-      // Escape special chars for drawtext path (colons, backslashes, single quotes)
       const escapedTextFile = textFilePath.replace(/\\/g, '\\\\\\\\').replace(/:/g, '\\\\:').replace(/'/g, "'\\\\''");
-      vf += `,drawtext=textfile='${escapedTextFile}':reload=1:${pos}:${fontSpec}`;
+
+      // Add title label if set
+      if (station.overlay_title) {
+        const titleGap = station.overlay_font_size + 8;
+        const titlePosMap: Record<string, string> = {
+          'bottom-left': `x=${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}-${titleGap}`,
+          'bottom-center': `x=(w-tw)/2:y=h-th-${station.overlay_margin_y}-${titleGap}`,
+          'bottom-right': `x=w-tw-${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}-${titleGap}`,
+          'top-left': `x=${station.overlay_margin_x}:y=${station.overlay_margin_y}`,
+          'top-center': `x=(w-tw)/2:y=${station.overlay_margin_y}`,
+          'top-right': `x=w-tw-${station.overlay_margin_x}:y=${station.overlay_margin_y}`,
+        };
+        const titlePos = titlePosMap[station.overlay_position] || titlePosMap['bottom-left'];
+        let titleFontSpec = `fontsize=${station.overlay_title_font_size || 22}:fontcolor=${station.overlay_title_font_color || 'yellow'}`;
+        if (station.overlay_font_family) titleFontSpec += `:font='${station.overlay_font_family}'`;
+        if (station.overlay_font_file) titleFontSpec += `:fontfile='${station.overlay_font_file}'`;
+        titleFontSpec += `:shadowx=${station.overlay_shadow_x}:shadowy=${station.overlay_shadow_y}`;
+        titleFontSpec += `:borderw=${station.overlay_outline_width}`;
+        if (station.overlay_bg_color) titleFontSpec += `:box=1:boxcolor=${station.overlay_bg_color}:boxborderw=8`;
+
+        const escapedTitle = station.overlay_title.replace(/:/g, '\\:').replace(/'/g, "'\\''");
+        vf += `,drawtext=text='${escapedTitle}':${titlePos}:${titleFontSpec}`;
+
+        // Shift track text for top positions
+        if (station.overlay_position?.startsWith('top')) {
+          const trackShift = (station.overlay_title_font_size || 22) + 8;
+          const shiftedPos = pos.replace(
+            `y=${station.overlay_margin_y}`,
+            `y=${station.overlay_margin_y}+${trackShift}`
+          );
+          vf += `,drawtext=textfile='${escapedTextFile}':reload=1:${shiftedPos}:${fontSpec}`;
+        } else {
+          vf += `,drawtext=textfile='${escapedTextFile}':reload=1:${pos}:${fontSpec}`;
+        }
+      } else {
+        vf += `,drawtext=textfile='${escapedTextFile}':reload=1:${pos}:${fontSpec}`;
+      }
     }
 
     return new Promise((resolve) => {

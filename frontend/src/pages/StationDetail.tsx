@@ -491,6 +491,7 @@ function DestinationsTab({ stationId, destinations, reload }: { stationId: strin
 function OverlayTab({ station, updateStation }: { station: Station; updateStation: (data: Record<string, any>) => Promise<void> }) {
   const [fontSize, setFontSize] = useState(station.overlay_font_size);
   const [fontColor, setFontColor] = useState(station.overlay_font_color);
+  const [fontFamily, setFontFamily] = useState(station.overlay_font_family || '');
   const [bgColor, setBgColor] = useState(station.overlay_bg_color);
   const [position, setPosition] = useState(station.overlay_position);
   const [enabled, setEnabled] = useState(!!station.overlay_enabled);
@@ -499,6 +500,9 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
   const [outlineW, setOutlineW] = useState(station.overlay_outline_width);
   const [marginX, setMarginX] = useState(station.overlay_margin_x);
   const [marginY, setMarginY] = useState(station.overlay_margin_y);
+  const [overlayTitle, setOverlayTitle] = useState(station.overlay_title || '');
+  const [titleFontSize, setTitleFontSize] = useState(station.overlay_title_font_size || 22);
+  const [titleFontColor, setTitleFontColor] = useState(station.overlay_title_font_color || 'yellow');
   const [npMode, setNpMode] = useState(station.np_mode);
   const [azUrl, setAzUrl] = useState(station.np_azuracast_url);
   const [azStation, setAzStation] = useState(station.np_azuracast_station);
@@ -508,6 +512,7 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
     overlay_enabled: enabled ? 1 : 0,
     overlay_font_size: fontSize,
     overlay_font_color: fontColor,
+    overlay_font_family: fontFamily,
     overlay_bg_color: bgColor,
     overlay_position: position,
     overlay_shadow_x: shadowX,
@@ -515,6 +520,9 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
     overlay_outline_width: outlineW,
     overlay_margin_x: marginX,
     overlay_margin_y: marginY,
+    overlay_title: overlayTitle,
+    overlay_title_font_size: titleFontSize,
+    overlay_title_font_color: titleFontColor,
     np_mode: npMode,
     np_azuracast_url: azUrl,
     np_azuracast_station: azStation,
@@ -532,53 +540,93 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
           </label>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Position</label>
-            <select className="select-field" title="Position" value={position} onChange={e => setPosition(e.target.value)}>
-              <option value="bottom-left">Bottom Left</option>
-              <option value="bottom-center">Bottom Center</option>
-              <option value="bottom-right">Bottom Right</option>
-              <option value="top-left">Top Left</option>
-              <option value="top-center">Top Center</option>
-              <option value="top-right">Top Right</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Font Size</label>
-            <input className="input-field" type="number" title="Font Size" value={fontSize} onChange={e => setFontSize(Number(e.target.value))} />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Font Color</label>
-            <input className="input-field" value={fontColor} onChange={e => setFontColor(e.target.value)} placeholder="white" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Background Color</label>
-            <input className="input-field" value={bgColor} onChange={e => setBgColor(e.target.value)} placeholder="black@0.6" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Shadow X / Y</label>
-            <div className="flex gap-2">
-              <input className="input-field" type="number" title="Shadow X" value={shadowX} onChange={e => setShadowX(Number(e.target.value))} />
-              <input className="input-field" type="number" title="Shadow Y" value={shadowY} onChange={e => setShadowY(Number(e.target.value))} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Position</label>
+              <select className="select-field" title="Position" value={position} onChange={e => setPosition(e.target.value)}>
+                <option value="bottom-left">Bottom Left</option>
+                <option value="bottom-center">Bottom Center</option>
+                <option value="bottom-right">Bottom Right</option>
+                <option value="top-left">Top Left</option>
+                <option value="top-center">Top Center</option>
+                <option value="top-right">Top Right</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Font Family</label>
+              <select className="select-field" title="Font Family" value={fontFamily} onChange={e => setFontFamily(e.target.value)}>
+                <option value="">System Default</option>
+                <option value="DejaVu Sans">DejaVu Sans</option>
+                <option value="DejaVu Sans Mono">DejaVu Sans Mono</option>
+                <option value="DejaVu Serif">DejaVu Serif</option>
+                <option value="Liberation Sans">Liberation Sans (Arial-like)</option>
+                <option value="Liberation Serif">Liberation Serif (Times-like)</option>
+                <option value="Liberation Mono">Liberation Mono (Courier-like)</option>
+                <option value="Noto Sans">Noto Sans</option>
+                <option value="Noto Serif">Noto Serif</option>
+                <option value="FreeSans">FreeSans</option>
+                <option value="FreeSerif">FreeSerif</option>
+                <option value="FreeMono">FreeMono</option>
+              </select>
+              <p className="text-[10px] text-gray-600 mt-1">Fonts disponibile pe server Docker. Pentru fonturi custom, uploadează .ttf și specifică în Font File.</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Font File (opțional, cale .ttf)</label>
+              <input className="input-field" value={station.overlay_font_file} placeholder="/app/uploads/fonts/custom.ttf" disabled title="Custom font file path" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Track Font Size</label>
+              <input className="input-field" type="number" title="Font Size" value={fontSize} onChange={e => setFontSize(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Track Font Color</label>
+              <input className="input-field" value={fontColor} onChange={e => setFontColor(e.target.value)} placeholder="white" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Background Color</label>
+              <input className="input-field" value={bgColor} onChange={e => setBgColor(e.target.value)} placeholder="black@0.6" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Shadow X / Y</label>
+              <div className="flex gap-2">
+                <input className="input-field" type="number" title="Shadow X" value={shadowX} onChange={e => setShadowX(Number(e.target.value))} />
+                <input className="input-field" type="number" title="Shadow Y" value={shadowY} onChange={e => setShadowY(Number(e.target.value))} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Outline Width</label>
+              <input className="input-field" type="number" title="Outline Width" value={outlineW} onChange={e => setOutlineW(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Margin X</label>
+              <input className="input-field" type="number" title="Margin X" value={marginX} onChange={e => setMarginX(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Margin Y</label>
+              <input className="input-field" type="number" title="Margin Y" value={marginY} onChange={e => setMarginY(Number(e.target.value))} />
             </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Outline Width</label>
-            <input className="input-field" type="number" title="Outline Width" value={outlineW} onChange={e => setOutlineW(Number(e.target.value))} />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Margin X</label>
-            <input className="input-field" type="number" title="Margin X" value={marginX} onChange={e => setMarginX(Number(e.target.value))} />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Margin Y</label>
-            <input className="input-field" type="number" title="Margin Y" value={marginY} onChange={e => setMarginY(Number(e.target.value))} />
-          </div>
         </div>
-      </div>
 
-      <div className="card space-y-4">
+        {/* Title Label Settings */}
+        <div className="card space-y-4">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">🏷️ Title Label (deasupra track-ului)</h3>
+          <p className="text-xs text-gray-500">Adaugă un titlu fix deasupra numelui melodiei, ex: &quot;Ascultă acum:&quot; sau &quot;🎵 Now Playing:&quot;</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Title Text</label>
+              <input className="input-field" value={overlayTitle} onChange={e => setOverlayTitle(e.target.value)} placeholder="Ascultă acum:" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Title Font Size</label>
+              <input className="input-field" type="number" title="Title Font Size" value={titleFontSize} onChange={e => setTitleFontSize(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Title Font Color</label>
+              <input className="input-field" value={titleFontColor} onChange={e => setTitleFontColor(e.target.value)} placeholder="yellow" />
+            </div>
+          </div>
+        </div>      <div className="card space-y-4">
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Now Playing Source</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>

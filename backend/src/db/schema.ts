@@ -27,20 +27,22 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 
-      -- Overlay settings
-      overlay_enabled INTEGER NOT NULL DEFAULT 1,
-      overlay_font_size INTEGER NOT NULL DEFAULT 28,
-      overlay_font_color TEXT NOT NULL DEFAULT 'white',
-      overlay_bg_color TEXT NOT NULL DEFAULT 'black@0.6',
-      overlay_position TEXT NOT NULL DEFAULT 'bottom-left',
-      overlay_font_file TEXT NOT NULL DEFAULT '',
-      overlay_shadow_x INTEGER NOT NULL DEFAULT 2,
-      overlay_shadow_y INTEGER NOT NULL DEFAULT 2,
-      overlay_outline_width INTEGER NOT NULL DEFAULT 1,
-      overlay_margin_x INTEGER NOT NULL DEFAULT 20,
-      overlay_margin_y INTEGER NOT NULL DEFAULT 20,
-
-      -- Now Playing source
+        -- Overlay settings
+        overlay_enabled INTEGER NOT NULL DEFAULT 1,
+        overlay_font_size INTEGER NOT NULL DEFAULT 28,
+        overlay_font_color TEXT NOT NULL DEFAULT 'white',
+        overlay_font_family TEXT NOT NULL DEFAULT '',
+        overlay_bg_color TEXT NOT NULL DEFAULT 'black@0.6',
+        overlay_position TEXT NOT NULL DEFAULT 'bottom-left',
+        overlay_font_file TEXT NOT NULL DEFAULT '',
+        overlay_shadow_x INTEGER NOT NULL DEFAULT 2,
+        overlay_shadow_y INTEGER NOT NULL DEFAULT 2,
+        overlay_outline_width INTEGER NOT NULL DEFAULT 1,
+        overlay_margin_x INTEGER NOT NULL DEFAULT 20,
+        overlay_margin_y INTEGER NOT NULL DEFAULT 20,
+        overlay_title TEXT NOT NULL DEFAULT '',
+        overlay_title_font_size INTEGER NOT NULL DEFAULT 22,
+        overlay_title_font_color TEXT NOT NULL DEFAULT 'yellow',      -- Now Playing source
       np_mode TEXT NOT NULL DEFAULT 'azuracast',
       np_azuracast_url TEXT NOT NULL DEFAULT '',
       np_azuracast_station TEXT NOT NULL DEFAULT '',
@@ -129,15 +131,31 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
   `);
 
-  // Seed default admin if no users exist
-  const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
-  if (userCount === 0) {
-    const adminPass = process.env.ADMIN_PASSWORD || 'admin123!';
-    const hash = bcrypt.hashSync(adminPass, 12);
-    db.prepare(
-      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, 'admin')"
-    ).run(uuidv4(), 'admin', hash);
-    console.log(`\n🔐 Default admin user created. Username: admin  Password: ${adminPass}`);
-    console.log('   ⚠️  Change the password immediately via the UI!\n');
+    // Seed default admin if no users exist
+    const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
+    if (userCount === 0) {
+      const adminPass = process.env.ADMIN_PASSWORD || 'admin123!';
+      const hash = bcrypt.hashSync(adminPass, 12);
+      db.prepare(
+        "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, 'admin')"
+      ).run(uuidv4(), 'admin', hash);
+      console.log(`\n🔐 Default admin user created. Username: admin  Password: ${adminPass}`);
+      console.log('   ⚠️  Change the password immediately via the UI!\n');
+    }
+
+    // Migrations for existing databases
+    const cols = db.prepare("PRAGMA table_info(stations)").all() as any[];
+    const colNames = cols.map((c: any) => c.name);
+    if (!colNames.includes('overlay_font_family')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN overlay_font_family TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!colNames.includes('overlay_title')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN overlay_title TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!colNames.includes('overlay_title_font_size')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN overlay_title_font_size INTEGER NOT NULL DEFAULT 22`);
+    }
+    if (!colNames.includes('overlay_title_font_color')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN overlay_title_font_color TEXT NOT NULL DEFAULT 'yellow'`);
+    }
   }
-}

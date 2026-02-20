@@ -8,6 +8,7 @@ export interface Station {
   overlay_enabled: number;
   overlay_font_size: number;
   overlay_font_color: string;
+  overlay_font_family: string;
   overlay_bg_color: string;
   overlay_position: string;
   overlay_font_file: string;
@@ -16,6 +17,9 @@ export interface Station {
   overlay_outline_width: number;
   overlay_margin_x: number;
   overlay_margin_y: number;
+  overlay_title: string;
+  overlay_title_font_size: number;
+  overlay_title_font_color: string;
   np_mode: string;
   np_azuracast_url: string;
   np_azuracast_station: string;

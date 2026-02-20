@@ -6,7 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM node:20-alpine
-RUN apk add --no-cache ffmpeg python3 make g++ freetype fontconfig ttf-dejavu
+RUN apk add --no-cache ffmpeg python3 make g++ freetype fontconfig ttf-dejavu font-noto font-liberation ttf-freefont && fc-cache -f
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
