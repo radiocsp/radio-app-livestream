@@ -130,10 +130,18 @@ export class FFmpegSupervisor extends EventEmitter {
     const uploadsDir = path.join(__dirname, '..', '..', 'uploads', stationId);
     const lines = items.map(i => `file '${path.join(uploadsDir, i.filename)}'`);
 
+    // Repeat the entire playlist many times for 24/7 looping
+    // FFmpeg concat demuxer plays sequentially; -stream_loop doesn't work reliably with concat
+    // 500 repeats × average 5min video = ~41 hours; FFmpeg auto-restarts after that
+    const repeatedLines: string[] = [];
+    for (let i = 0; i < 500; i++) {
+      repeatedLines.push(...lines);
+    }
+
     // Write atomically: write to temp then rename
     const playlistPath = path.join(stationDir, 'playlist.txt');
     const tempPath = playlistPath + '.tmp';
-    fs.writeFileSync(tempPath, lines.join('\n') + '\n');
+    fs.writeFileSync(tempPath, repeatedLines.join('\n') + '\n');
     fs.renameSync(tempPath, playlistPath);
 
     this.emit('log', stationId, 'info', 'app', `Playlist updated: ${items.length} items`);
@@ -298,7 +306,6 @@ export class FFmpegSupervisor extends EventEmitter {
     // Build FFmpeg args
     const args: string[] = [
       '-re',
-      '-stream_loop', '-1',
       '-f', 'concat', '-safe', '0', '-i', playlistPath,
       '-i', audioSource.url,
       '-map', '0:v', '-map', '1:a',
