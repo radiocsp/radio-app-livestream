@@ -9,6 +9,7 @@ import { getDb } from './db/schema';
 import { registerStationRoutes } from './routes/stations';
 import { authRoutes } from './routes/auth';
 import { registerSSLRoutes } from './routes/ssl';
+import { registerStorageRoutes } from './routes/storage';
 import { startAutoRenewal } from './services/ssl';
 import jwtAuthPlugin from './plugins/jwt-auth';
 import { FFmpegSupervisor } from './services/ffmpeg-supervisor';
@@ -105,6 +106,7 @@ async function main() {
   await app.register(authRoutes);
   registerStationRoutes(app, supervisor);
   registerSSLRoutes(app);
+  registerStorageRoutes(app);
 
   // ─── SSE endpoint for real-time updates ──────────────────
   const sseClients: Set<any> = new Set();
