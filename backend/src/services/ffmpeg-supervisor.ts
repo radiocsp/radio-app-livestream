@@ -359,10 +359,11 @@ export class FFmpegSupervisor extends EventEmitter {
     const videoFilter = filterParts.join(',');
 
     // Build FFmpeg args
-    // Key: concat demuxer can stall at file transitions if videos have different NAL formats
-    // Fix: large probesize/analyzeduration + explicit bsf + copytb for timestamp continuity
+    // Key: concat demuxer can stall at file transitions if videos have different codecs (HEVC/H.264)
+    // Fix: err_detect ignore_err + large probesize + copytb for robust codec transitions
     const args: string[] = [
-      '-fflags', '+genpts+discardcorrupt+igndts',  // Regenerate PTS, ignore DTS discontinuities
+      '-fflags', '+genpts+discardcorrupt+igndts',  // Regenerate PTS, ignore DTS discontinuities, discard corrupt packets
+      '-err_detect', 'ignore_err',                 // Critical: ignore decode errors at file transitions (HEVC↔H.264)
       '-probesize', '50M',                         // Probe enough data at each file transition
       '-analyzeduration', '10M',                   // Analyze enough duration at transitions
       '-re',
@@ -370,9 +371,13 @@ export class FFmpegSupervisor extends EventEmitter {
       '-auto_convert', '1',                        // Auto-convert codec parameters between segments
       '-i', playlistPath,
       '-thread_queue_size', '4096',                // Large queue to prevent stalling between files
+      '-reconnect', '1',                           // Reconnect audio stream if dropped
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
       '-i', audioSource.url,
       '-map', '0:v', '-map', '1:a',
       '-vsync', 'cfr',                            // Constant frame rate output
+      '-fps_mode', 'cfr',                         // Modern equivalent of -vsync cfr
       '-copytb', '1',                              // Copy timestamps from demuxer (prevents time base mismatch)
       '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
       '-b:v', station.video_bitrate,
@@ -384,6 +389,7 @@ export class FFmpegSupervisor extends EventEmitter {
       '-pix_fmt', 'yuv420p',                        // Force pixel format (YouTube requirement)
       '-vf', videoFilter,
       '-max_muxing_queue_size', '4096',            // Prevent muxing queue overflow at transitions
+      '-max_error_rate', '0.5',                    // Allow up to 50% error rate before quitting (default is 2/3)
       '-c:a', 'aac', '-b:a', station.audio_bitrate, '-ar', '44100',
       '-strict', 'experimental',
       '-flags', '+global_header',                   // Required for FLV streaming
