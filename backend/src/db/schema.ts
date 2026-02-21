@@ -134,7 +134,31 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+    -- System-wide settings (key-value store)
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
+
+    // Seed default SSL settings if not present
+    const settingsCount = (db.prepare("SELECT COUNT(*) as c FROM system_settings WHERE key LIKE 'ssl_%'").get() as any).c;
+    if (settingsCount === 0) {
+      const sslDefaults = [
+        ['ssl_enabled', '0'],
+        ['ssl_domain', ''],
+        ['ssl_email', ''],
+        ['ssl_status', 'inactive'],
+        ['ssl_issued_at', ''],
+        ['ssl_expires_at', ''],
+      ];
+      const insert = db.prepare('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)');
+      for (const [k, v] of sslDefaults) {
+        insert.run(k, v);
+      }
+    }
 
     // Seed default admin if no users exist
     const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;

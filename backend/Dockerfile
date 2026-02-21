@@ -6,7 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM node:20-alpine
-RUN apk add --no-cache ffmpeg python3 make g++ freetype fontconfig ttf-dejavu font-noto font-liberation ttf-freefont curl && \
+RUN apk add --no-cache ffmpeg python3 py3-pip make g++ freetype fontconfig ttf-dejavu font-noto font-liberation ttf-freefont curl certbot docker-cli && \
     # Download Google Fonts
     mkdir -p /usr/share/fonts/google && \
     # Poppins (Canva favorite)
@@ -52,9 +52,7 @@ RUN apk add --no-cache ffmpeg python3 make g++ freetype fontconfig ttf-dejavu fo
     curl -sL "https://github.com/google/fonts/raw/main/ofl/kanit/Kanit-Regular.ttf" -o /usr/share/fonts/google/Kanit-Regular.ttf && \
     curl -sL "https://github.com/google/fonts/raw/main/ofl/kanit/Kanit-Bold.ttf" -o /usr/share/fonts/google/Kanit-Bold.ttf && \
     # Refresh font cache
-    fc-cache -f && \
-    # Remove curl after done
-    apk del curl
+    fc-cache -f
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev

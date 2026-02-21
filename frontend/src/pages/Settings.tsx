@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Shield, User, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, KeyRound } from 'lucide-react';
+import { Shield, User, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, KeyRound, Globe, Mail, ShieldCheck, ShieldOff, RefreshCw, ExternalLink } from 'lucide-react';
+
+interface SSLStatus {
+  enabled: boolean;
+  domain: string;
+  email: string;
+  status: string; // inactive | pending | active | error
+  issuedAt: string;
+  expiresAt: string;
+  errorMessage: string;
+}
 
 export default function Settings() {
   const { user, token, changePassword } = useAuth();
@@ -16,12 +26,39 @@ export default function Settings() {
 
   // Account info
   const [account, setAccount] = useState<any>(null);
+
+  // SSL state
+  const [sslStatus, setSSLStatus] = useState<SSLStatus | null>(null);
+  const [sslDomain, setSSLDomain] = useState('');
+  const [sslEmail, setSSLEmail] = useState('');
+  const [sslLoading, setSSLLoading] = useState(false);
+  const [sslSuccess, setSSLSuccess] = useState('');
+  const [sslError, setSSLError] = useState('');
+
   useEffect(() => {
     if (!token) return;
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => setAccount(data))
       .catch(() => {});
+  }, [token]);
+
+  // Fetch SSL status
+  const fetchSSLStatus = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/admin/ssl', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data: SSLStatus = await res.json();
+        setSSLStatus(data);
+        if (data.domain) setSSLDomain(data.domain);
+        if (data.email) setSSLEmail(data.email);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchSSLStatus();
   }, [token]);
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -56,11 +93,266 @@ export default function Settings() {
     }
   };
 
+  // SSL: Save & Apply
+  const handleSSLApply = async () => {
+    setSSLError('');
+    setSSLSuccess('');
+
+    if (!sslDomain.trim()) {
+      setSSLError('Domain is required (e.g. stream.example.com)');
+      return;
+    }
+    if (!sslEmail.trim()) {
+      setSSLError('Email is required for Let\'s Encrypt');
+      return;
+    }
+
+    setSSLLoading(true);
+    try {
+      // First save settings
+      const saveRes = await fetch('/api/admin/ssl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ domain: sslDomain.trim(), email: sslEmail.trim() }),
+      });
+      if (!saveRes.ok) {
+        const err = await saveRes.json();
+        throw new Error(err.error || 'Failed to save SSL settings');
+      }
+
+      // Then request certificate
+      const applyRes = await fetch('/api/admin/ssl/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ domain: sslDomain.trim(), email: sslEmail.trim() }),
+      });
+      const result = await applyRes.json();
+      if (applyRes.ok && result.success) {
+        setSSLSuccess(result.message || 'SSL certificate installed successfully! 🎉');
+        await fetchSSLStatus();
+      } else {
+        throw new Error(result.error || result.message || 'Failed to install SSL certificate');
+      }
+    } catch (err: any) {
+      setSSLError(err.message || 'SSL installation failed');
+    } finally {
+      setSSLLoading(false);
+    }
+  };
+
+  // SSL: Disable
+  const handleSSLDisable = async () => {
+    if (!confirm('Are you sure you want to disable SSL? The site will be HTTP only.')) return;
+    setSSLError('');
+    setSSLSuccess('');
+    setSSLLoading(true);
+    try {
+      const res = await fetch('/api/admin/ssl/disable', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setSSLSuccess('SSL disabled successfully');
+        await fetchSSLStatus();
+      } else {
+        throw new Error(result.error || 'Failed to disable SSL');
+      }
+    } catch (err: any) {
+      setSSLError(err.message);
+    } finally {
+      setSSLLoading(false);
+    }
+  };
+
+  const sslStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'text-emerald-400';
+      case 'pending': return 'text-amber-400';
+      case 'error': return 'text-red-400';
+      default: return 'text-gray-500';
+    }
+  };
+
+  const sslStatusBadge = (status: string) => {
+    switch (status) {
+      case 'active': return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+      case 'pending': return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+      case 'error': return 'bg-red-500/10 border-red-500/30 text-red-400';
+      default: return 'bg-gray-500/10 border-gray-500/30 text-gray-500';
+    }
+  };
+
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Settings</h1>
-        <p className="text-gray-500 text-sm mt-1">Manage your account and security</p>
+        <p className="text-gray-500 text-sm mt-1">Manage your account, security and SSL</p>
+      </div>
+
+      {/* SSL / HTTPS Card */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-full bg-emerald-600/20 flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white">SSL / HTTPS</h2>
+            <p className="text-xs text-gray-500">Free Let's Encrypt certificate — auto-install</p>
+          </div>
+          {sslStatus && (
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${sslStatusBadge(sslStatus.status)}`}>
+              {sslStatus.status === 'active' ? '🔒 Active' :
+               sslStatus.status === 'pending' ? '⏳ Installing...' :
+               sslStatus.status === 'error' ? '❌ Error' : '🔓 Inactive'}
+            </span>
+          )}
+        </div>
+
+        {/* SSL Status Info */}
+        {sslStatus?.status === 'active' && (
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-0.5">Domain</p>
+              <p className="text-sm font-medium text-emerald-400 flex items-center gap-1">
+                <Globe className="w-3.5 h-3.5" />
+                {sslStatus.domain}
+              </p>
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-0.5">Status</p>
+              <p className={`text-sm font-medium ${sslStatusColor(sslStatus.status)}`}>
+                🔒 HTTPS Active
+              </p>
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-0.5">Issued</p>
+              <p className="text-sm font-medium text-white">
+                {sslStatus.issuedAt ? new Date(sslStatus.issuedAt).toLocaleDateString() : '—'}
+              </p>
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-0.5">Expires</p>
+              <p className="text-sm font-medium text-white">
+                {sslStatus.expiresAt ? new Date(sslStatus.expiresAt).toLocaleDateString() : '—'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {sslSuccess && (
+          <div className="mb-4 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-lg px-4 py-2.5 text-sm">
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            <span>{sslSuccess}</span>
+          </div>
+        )}
+
+        {sslError && (
+          <div className="mb-4 flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-2.5 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span className="break-all">{sslError}</span>
+          </div>
+        )}
+
+        {sslStatus?.status === 'error' && sslStatus.errorMessage && (
+          <div className="mb-4 flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-2.5 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span className="break-all text-xs">{sslStatus.errorMessage}</span>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {/* Domain */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1.5">
+              Domain / Subdomain
+            </label>
+            <div className="relative">
+              <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="text"
+                value={sslDomain}
+                onChange={(e) => setSSLDomain(e.target.value)}
+                disabled={sslLoading}
+                placeholder="stream.example.com"
+                className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50"
+              />
+            </div>
+            <p className="text-xs text-gray-600 mt-1">
+              The domain must point to this server's IP before activating SSL
+            </p>
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1.5">
+              Email (for Let's Encrypt)
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="email"
+                value={sslEmail}
+                onChange={(e) => setSSLEmail(e.target.value)}
+                disabled={sslLoading}
+                placeholder="admin@example.com"
+                className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50"
+              />
+            </div>
+            <p className="text-xs text-gray-600 mt-1">
+              Used for certificate expiry notifications from Let's Encrypt
+            </p>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={handleSSLApply}
+              disabled={sslLoading || !sslDomain.trim() || !sslEmail.trim()}
+              className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-lg py-2.5 text-sm transition-all flex items-center justify-center gap-2"
+            >
+              {sslLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Installing certificate...
+                </>
+              ) : sslStatus?.status === 'active' ? (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  Renew Certificate
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  Activate SSL
+                </>
+              )}
+            </button>
+
+            {sslStatus?.status === 'active' && (
+              <button
+                onClick={handleSSLDisable}
+                disabled={sslLoading}
+                className="px-4 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-400 font-medium rounded-lg py-2.5 text-sm transition-all flex items-center gap-2"
+              >
+                <ShieldOff className="w-4 h-4" />
+                Disable
+              </button>
+            )}
+          </div>
+
+          {sslStatus?.status === 'active' && sslStatus.domain && (
+            <a
+              href={`https://${sslStatus.domain}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open https://{sslStatus.domain}
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Account Info Card */}

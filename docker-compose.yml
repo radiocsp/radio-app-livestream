@@ -7,6 +7,10 @@ services:
     volumes:
       - ./data:/app/data
       - uploads:/app/uploads
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+      - nginx-ssl-conf:/etc/nginx/ssl-conf
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -27,6 +31,11 @@ services:
     container_name: radiostream-frontend
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+      - nginx-ssl-conf:/etc/nginx/ssl-conf:ro
     depends_on:
       - backend
     restart: unless-stopped
@@ -34,3 +43,6 @@ services:
 volumes:
   uploads:
   data:
+  letsencrypt:
+  certbot-webroot:
+  nginx-ssl-conf:

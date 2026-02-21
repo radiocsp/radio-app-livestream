@@ -8,6 +8,8 @@ import fs from 'fs';
 import { getDb } from './db/schema';
 import { registerStationRoutes } from './routes/stations';
 import { authRoutes } from './routes/auth';
+import { registerSSLRoutes } from './routes/ssl';
+import { startAutoRenewal } from './services/ssl';
 import jwtAuthPlugin from './plugins/jwt-auth';
 import { FFmpegSupervisor } from './services/ffmpeg-supervisor';
 import { getSystemHealth } from './utils/system-health';
@@ -102,6 +104,7 @@ async function main() {
   // Register routes
   await app.register(authRoutes);
   registerStationRoutes(app, supervisor);
+  registerSSLRoutes(app);
 
   // ─── SSE endpoint for real-time updates ──────────────────
   const sseClients: Set<any> = new Set();
@@ -152,6 +155,9 @@ async function main() {
   try {
     await app.listen({ port: PORT, host: HOST });
     console.log(`\n🎙️  RadioStream Studio backend running on http://${HOST}:${PORT}\n`);
+
+    // Start SSL auto-renewal timer
+    startAutoRenewal();
   } catch (err) {
     console.error(err);
     process.exit(1);
