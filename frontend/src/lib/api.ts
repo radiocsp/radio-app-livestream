@@ -163,6 +163,7 @@ export const api = {
     const completeResp = await fetch(`${API}/stations/${stationId}/upload/complete/${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: '{}',
       signal: opts.signal,
     });
     if (completeResp.status === 401) { handle401(); throw new Error('Unauthorized'); }
