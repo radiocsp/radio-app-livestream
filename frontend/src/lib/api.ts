@@ -60,17 +60,30 @@ export const api = {
 
   // Playlist
   getPlaylist: (stationId: string) => request<any[]>(`/stations/${stationId}/playlist`),
-  uploadVideo: async (stationId: string, file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const token = getToken();
-    const res = await fetch(`${API}/stations/${stationId}/playlist/upload`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: formData,
+  uploadVideo: (stationId: string, file: File, onProgress?: (pct: number, loaded: number, total: number) => void): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const token = getToken();
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API}/stations/${stationId}/playlist/upload`);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 401) { handle401(); reject(new Error('Unauthorized')); return; }
+        try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
+      };
+      xhr.onerror = () => reject(new Error('Upload failed'));
+      xhr.onabort = () => reject(new Error('Upload aborted'));
+      xhr.send(formData);
     });
-    if (res.status === 401) { handle401(); throw new Error('Unauthorized'); }
-    return res.json();
   },
   reorderPlaylist: (stationId: string, items: { id: string; sort_order: number; is_enabled?: number }[]) =>
     request<any>(`/stations/${stationId}/playlist/reorder`, { method: 'PUT', body: JSON.stringify({ items }) }),

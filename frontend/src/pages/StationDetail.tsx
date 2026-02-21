@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatBytes, statusColor, formatUptime } from '../lib/utils';
+import { formatBytes, statusColor, formatUptime, formatFileSize, formatUploadSpeed, formatEta } from '../lib/utils';
 import { Station, AudioSource, PlaylistItem, RtmpDestination, StationLog } from '../types';
 import { useInterval } from '../hooks/useSSE';
 import {
@@ -30,6 +30,7 @@ export default function StationDetail({ sse }: Props) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ pct: number; loaded: number; total: number; speed: number; fileName: string; fileIndex: number; fileCount: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -82,11 +83,31 @@ export default function StationDetail({ sse }: Props) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
-    for (const file of Array.from(files)) {
-      await api.uploadVideo(id, file);
+    const fileList = Array.from(files);
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      let lastLoaded = 0;
+      let lastTime = Date.now();
+      let speed = 0;
+
+      setUploadProgress({ pct: 0, loaded: 0, total: file.size, speed: 0, fileName: file.name, fileIndex: i + 1, fileCount: fileList.length });
+
+      await api.uploadVideo(id, file, (pct, loaded, total) => {
+        const now = Date.now();
+        const elapsed = (now - lastTime) / 1000;
+        if (elapsed > 0.3) {
+          speed = (loaded - lastLoaded) / elapsed;
+          lastLoaded = loaded;
+          lastTime = now;
+        }
+        setUploadProgress({ pct, loaded, total, speed, fileName: file.name, fileIndex: i + 1, fileCount: fileList.length });
+      });
     }
     setUploading(false);
+    setUploadProgress(null);
     load();
+    // Reset file input so same file can be re-uploaded
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const moveItem = async (index: number, direction: 'up' | 'down') => {
@@ -243,6 +264,35 @@ export default function StationDetail({ sse }: Props) {
               </button>
               <span className="text-xs text-gray-500">{playlist.filter(p => p.is_enabled).length} active • {playlist.length} total</span>
             </div>
+
+            {/* Upload Progress Bar */}
+            {uploadProgress && (
+              <div className="card space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-300 font-medium truncate max-w-[50%]">
+                    📤 {uploadProgress.fileName}
+                    {uploadProgress.fileCount > 1 && <span className="text-gray-500 ml-1">({uploadProgress.fileIndex}/{uploadProgress.fileCount})</span>}
+                  </span>
+                  <span className="text-gray-400 font-mono">
+                    {uploadProgress.pct}%
+                    {uploadProgress.speed > 0 && <> • {formatUploadSpeed(uploadProgress.speed)}</>}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-blue-600 to-blue-400"
+                    style={{ width: `${uploadProgress.pct}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-gray-500">
+                  <span>{formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}</span>
+                  {uploadProgress.speed > 0 && uploadProgress.pct < 100 && (
+                    <span>ETA: {formatEta((uploadProgress.total - uploadProgress.loaded) / uploadProgress.speed)}</span>
+                  )}
+                  {uploadProgress.pct >= 100 && <span className="text-green-400">✓ Processing on server...</span>}
+                </div>
+              </div>
+            )}
 
             {playlist.length === 0 ? (
               <div className="card text-center py-12">
