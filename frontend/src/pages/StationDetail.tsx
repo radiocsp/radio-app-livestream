@@ -840,12 +840,40 @@ function SettingsTab({ station, updateStation }: { station: Station; updateStati
   const [restartDelay, setRestartDelay] = useState(station.restart_delay_sec);
   const [maxAttempts, setMaxAttempts] = useState(station.max_restart_attempts);
 
+  // Telegram
+  const [tgEnabled, setTgEnabled] = useState(!!station.telegram_enabled);
+  const [tgBotToken, setTgBotToken] = useState(station.telegram_bot_token || '');
+  const [tgChatId, setTgChatId] = useState(station.telegram_chat_id || '');
+  const [tgTesting, setTgTesting] = useState(false);
+  const [tgTestResult, setTgTestResult] = useState<{ ok: boolean; description?: string } | null>(null);
+
   const save = () => updateStation({
     video_width: width, video_height: height, video_bitrate: vBitrate,
     video_fps: fps, audio_bitrate: aBitrate,
     auto_restart: autoRestart ? 1 : 0, restart_delay_sec: restartDelay,
     max_restart_attempts: maxAttempts,
+    telegram_enabled: tgEnabled ? 1 : 0, telegram_bot_token: tgBotToken.trim(),
+    telegram_chat_id: tgChatId.trim(),
   });
+
+  const testTelegram = async () => {
+    setTgTesting(true);
+    setTgTestResult(null);
+    try {
+      // Save first so the backend has the latest token/chatId
+      await updateStation({
+        telegram_enabled: tgEnabled ? 1 : 0,
+        telegram_bot_token: tgBotToken.trim(),
+        telegram_chat_id: tgChatId.trim(),
+      });
+      const result = await api.testTelegram(station.id);
+      setTgTestResult(result);
+    } catch (err: any) {
+      setTgTestResult({ ok: false, description: err.message || 'Test failed' });
+    } finally {
+      setTgTesting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -891,6 +919,80 @@ function SettingsTab({ station, updateStation }: { station: Station; updateStati
             <input className="input-field" type="number" title="Max Attempts" value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))} />
           </div>
         </div>
+      </div>
+
+      {/* ─── TELEGRAM NOTIFICATIONS ─── */}
+      <div className="card space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+            <Send className="w-4 h-4" />
+            Telegram Notifications
+          </h3>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={tgEnabled} onChange={e => setTgEnabled(e.target.checked)} className="rounded" />
+            <span className="text-sm text-gray-300">{tgEnabled ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+
+        <p className="text-xs text-gray-500">
+          Receive error notifications on Telegram when FFmpeg crashes or encounters problems.
+          Create a bot via <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">@BotFather</a> and 
+          get your Chat ID from <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">@userinfobot</a>.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Bot Token</label>
+            <input
+              className="input-field font-mono text-xs"
+              type="password"
+              value={tgBotToken}
+              onChange={e => setTgBotToken(e.target.value)}
+              placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Chat ID</label>
+            <input
+              className="input-field font-mono text-xs"
+              value={tgChatId}
+              onChange={e => setTgChatId(e.target.value)}
+              placeholder="-1001234567890 or 123456789"
+              autoComplete="off"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={testTelegram}
+            disabled={tgTesting || !tgBotToken.trim() || !tgChatId.trim()}
+            className="px-4 py-2 rounded text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2"
+          >
+            {tgTesting ? (
+              <><RefreshCw className="w-4 h-4 animate-spin" /> Testing...</>
+            ) : (
+              <><Send className="w-4 h-4" /> Send Test Message</>
+            )}
+          </button>
+
+          {tgTestResult && (
+            <span className={`text-sm ${tgTestResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {tgTestResult.ok ? '✓ Message sent successfully!' : `✗ ${tgTestResult.description || 'Failed'}`}
+            </span>
+          )}
+        </div>
+
+        {tgEnabled && (!tgBotToken.trim() || !tgChatId.trim()) && (
+          <div className="bg-amber-950/30 border border-amber-800/50 rounded p-3 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-amber-300 text-xs">
+              Telegram notifications are enabled but {!tgBotToken.trim() && !tgChatId.trim() ? 'bot token and chat ID are' : !tgBotToken.trim() ? 'bot token is' : 'chat ID is'} missing. 
+              Notifications will not be sent until both fields are filled.
+            </p>
+          </div>
+        )}
       </div>
 
       <button onClick={save} className="btn-primary">Save Settings</button>

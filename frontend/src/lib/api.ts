@@ -94,6 +94,7 @@ export const api = {
   testRtmp: (data: { rtmp_url: string; stream_key?: string }) =>
     request<any>('/test/rtmp', { method: 'POST', body: JSON.stringify(data) }),
   healthCheck: (stationId: string) => request<any>(`/stations/${stationId}/healthcheck`, { method: 'POST', body: JSON.stringify({}) }),
+  testTelegram: (stationId: string) => request<any>(`/stations/${stationId}/test/telegram`, { method: 'POST', body: JSON.stringify({}) }),
 
   // Preview
   getPreviewUrl: (stationId: string) => `${API}/stations/${stationId}/preview?t=${Date.now()}`,

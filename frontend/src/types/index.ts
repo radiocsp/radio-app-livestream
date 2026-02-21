@@ -33,6 +33,9 @@ export interface Station {
   auto_restart: number;
   restart_delay_sec: number;
   max_restart_attempts: number;
+  telegram_enabled: number;
+  telegram_bot_token: string;
+  telegram_chat_id: string;
   runtime?: {
     status: string;
     pid: number | null;

@@ -6,6 +6,7 @@ import path from 'path';
 import { FFmpegSupervisor } from '../services/ffmpeg-supervisor';
 import { checkAudioSource, testRtmpDestination, runAudioHealthChecks } from '../services/health-check';
 import { NowPlayingService } from '../services/now-playing';
+import { sendTelegramTest } from '../services/telegram';
 
 export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSupervisor) {
   const db = getDb();
@@ -58,6 +59,7 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
         'np_mode', 'np_azuracast_url', 'np_azuracast_station', 'np_icecast_url', 'np_poll_interval',
         'video_width', 'video_height', 'video_bitrate', 'video_fps', 'audio_bitrate',
         'auto_restart', 'restart_delay_sec', 'max_restart_attempts',
+        'telegram_enabled', 'telegram_bot_token', 'telegram_chat_id',
       ];    const updates: string[] = [];
     const values: any[] = [];
     for (const key of allowed) {
@@ -310,6 +312,17 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
   // Run health checks for station
   app.post<{ Params: { id: string } }>('/api/stations/:id/healthcheck', async (req) => {
     return await runAudioHealthChecks(req.params.id);
+  });
+
+  // Test Telegram bot connection
+  app.post<{ Params: { id: string } }>('/api/stations/:id/test/telegram', async (req) => {
+    const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id) as any;
+    if (!station) return { ok: false, error: 'Station not found' };
+    if (!station.telegram_bot_token || !station.telegram_chat_id) {
+      return { ok: false, error: 'Bot token and chat ID are required' };
+    }
+    const result = await sendTelegramTest(station.telegram_bot_token, station.telegram_chat_id, station.name);
+    return result;
   });
 
   // ─── PREVIEW ─────────────────────────────────────────────

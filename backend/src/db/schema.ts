@@ -59,7 +59,12 @@ function initSchema(db: Database.Database) {
       -- Auto-restart
       auto_restart INTEGER NOT NULL DEFAULT 1,
       restart_delay_sec INTEGER NOT NULL DEFAULT 5,
-      max_restart_attempts INTEGER NOT NULL DEFAULT 10
+      max_restart_attempts INTEGER NOT NULL DEFAULT 10,
+
+      -- Telegram notifications
+      telegram_enabled INTEGER NOT NULL DEFAULT 0,
+      telegram_bot_token TEXT NOT NULL DEFAULT '',
+      telegram_chat_id TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS audio_sources (
@@ -157,5 +162,14 @@ function initSchema(db: Database.Database) {
     }
     if (!colNames.includes('overlay_title_font_color')) {
       db.exec(`ALTER TABLE stations ADD COLUMN overlay_title_font_color TEXT NOT NULL DEFAULT 'yellow'`);
+    }
+    if (!colNames.includes('telegram_enabled')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN telegram_enabled INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!colNames.includes('telegram_bot_token')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN telegram_bot_token TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!colNames.includes('telegram_chat_id')) {
+      db.exec(`ALTER TABLE stations ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''`);
     }
   }

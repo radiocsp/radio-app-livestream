@@ -11,6 +11,7 @@ import { authRoutes } from './routes/auth';
 import jwtAuthPlugin from './plugins/jwt-auth';
 import { FFmpegSupervisor } from './services/ffmpeg-supervisor';
 import { getSystemHealth } from './utils/system-health';
+import { sendTelegramError } from './services/telegram';
 
 const PORT = parseInt(process.env.PORT || '3001');
 const HOST = process.env.HOST || '0.0.0.0';
@@ -75,6 +76,15 @@ async function main() {
       // Keep only last 1000 logs per station
       db.prepare('DELETE FROM station_logs WHERE station_id = ? AND id NOT IN (SELECT id FROM station_logs WHERE station_id = ? ORDER BY created_at DESC LIMIT 1000)')
         .run(stationId, stationId);
+
+      // Send Telegram notification for errors
+      if (level === 'error') {
+        const station = db.prepare('SELECT name, telegram_enabled, telegram_bot_token, telegram_chat_id FROM stations WHERE id = ?').get(stationId) as any;
+        if (station?.telegram_enabled && station.telegram_bot_token && station.telegram_chat_id) {
+          sendTelegramError(station.telegram_bot_token, station.telegram_chat_id, station.name, stationId, level, source, message)
+            .catch(() => {}); // fire-and-forget
+        }
+      }
     } catch {}
 
     // Broadcast to SSE clients
