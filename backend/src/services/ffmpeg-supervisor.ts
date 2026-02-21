@@ -310,25 +310,34 @@ export class FFmpegSupervisor extends EventEmitter {
     const videoFilter = filterParts.join(',');
 
     // Build FFmpeg args
+    // Key: concat demuxer can stall at file transitions if videos have different NAL formats
+    // Fix: large probesize/analyzeduration + explicit bsf + copytb for timestamp continuity
     const args: string[] = [
-      '-fflags', '+genpts+discardcorrupt',        // Regenerate PTS to fix timestamp jumps at concat transitions
+      '-fflags', '+genpts+discardcorrupt+igndts',  // Regenerate PTS, ignore DTS discontinuities
+      '-probesize', '50M',                         // Probe enough data at each file transition
+      '-analyzeduration', '10M',                   // Analyze enough duration at transitions
       '-re',
-      '-f', 'concat', '-safe', '0', '-i', playlistPath,
+      '-f', 'concat', '-safe', '0',
+      '-auto_convert', '1',                        // Auto-convert codec parameters between segments
+      '-i', playlistPath,
+      '-thread_queue_size', '4096',                // Large queue to prevent stalling between files
       '-i', audioSource.url,
       '-map', '0:v', '-map', '1:a',
-      '-vsync', 'cfr',                            // Constant frame rate output (prevents stall at transitions)
+      '-vsync', 'cfr',                            // Constant frame rate output
+      '-copytb', '1',                              // Copy timestamps from demuxer (prevents time base mismatch)
       '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
       '-b:v', station.video_bitrate,
       '-maxrate', station.video_bitrate,
       '-bufsize', `${parseInt(station.video_bitrate) * 2}k`,
       '-r', String(station.video_fps),
-      '-g', String(station.video_fps * 2),       // Keyframe every 2 seconds (YouTube requirement)
-      '-keyint_min', String(station.video_fps),   // Min keyframe interval
-      '-pix_fmt', 'yuv420p',                      // Force pixel format (YouTube requirement)
+      '-g', String(station.video_fps * 2),         // Keyframe every 2 seconds (YouTube requirement)
+      '-keyint_min', String(station.video_fps),     // Min keyframe interval
+      '-pix_fmt', 'yuv420p',                        // Force pixel format (YouTube requirement)
       '-vf', videoFilter,
+      '-max_muxing_queue_size', '4096',            // Prevent muxing queue overflow at transitions
       '-c:a', 'aac', '-b:a', station.audio_bitrate, '-ar', '44100',
       '-strict', 'experimental',
-      '-flags', '+global_header',                 // Required for FLV streaming
+      '-flags', '+global_header',                   // Required for FLV streaming
     ];
 
     // Output: single destination = simple FLV, multiple = tee muxer
