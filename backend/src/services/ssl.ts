@@ -61,8 +61,8 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Global upload limit (5GB for video files)
-    client_max_body_size 5G;
+    # Global upload limit (10GB for video files)
+    client_max_body_size 10G;
 
     # SPA fallback
     location / {
@@ -80,7 +80,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
         proxy_read_timeout 86400;
-        client_max_body_size 5G;
+        client_max_body_size 10G;
     }
 
     # SSE support

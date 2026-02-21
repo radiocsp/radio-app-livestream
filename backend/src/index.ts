@@ -32,13 +32,13 @@ async function main() {
         options: { colorize: true },
       },
     },
-    bodyLimit: 5 * 1024 * 1024 * 1024, // 5GB for video uploads
+    bodyLimit: 10 * 1024 * 1024 * 1024, // 10GB for video uploads
   });
 
   await app.register(cors, { origin: true });
   await app.register(multipart, {
     limits: {
-      fileSize: 5 * 1024 * 1024 * 1024,
+      fileSize: 10 * 1024 * 1024 * 1024,
     },
   });
   await app.register(websocket);

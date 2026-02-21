@@ -379,17 +379,24 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
       const filename = `${itemId}${ext}`;
       const finalPath = path.join(uploadsDir, filename);
 
-      // Merge chunks in order
+      // Merge chunks in order using streaming (memory-safe for large files)
       const chunkFiles = fs.readdirSync(session.chunkDir)
         .filter(f => f.startsWith('chunk_'))
         .sort();
 
       const writeStream = fs.createWriteStream(finalPath);
+
+      // Pipe each chunk sequentially to avoid loading all into memory
       for (const chunkFile of chunkFiles) {
         const chunkPath = path.join(session.chunkDir, chunkFile);
-        const data = fs.readFileSync(chunkPath);
-        writeStream.write(data);
+        await new Promise<void>((resolve, reject) => {
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.on('error', reject);
+          readStream.pipe(writeStream, { end: false });
+          readStream.on('end', resolve);
+        });
       }
+
       await new Promise<void>((resolve, reject) => {
         writeStream.end();
         writeStream.on('finish', resolve);
