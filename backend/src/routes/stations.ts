@@ -248,7 +248,7 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
 
   // ─── PLAYLIST (video upload + management) ─────────────
 
-  // Upload MP4
+  // Upload MP4 (legacy single-request upload — kept for small files)
   app.post<{ Params: { id: string } }>('/api/stations/:id/playlist/upload', async (req, reply) => {
     const data = await req.file();
     if (!data) return reply.code(400).send({ error: 'No file' });
@@ -279,6 +279,138 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
 
     return db.prepare('SELECT * FROM playlist_items WHERE id = ?').get(itemId);
   });
+
+  // ─── CHUNKED UPLOAD (for large files 500MB+) ─────────────
+
+  // In-memory store for active upload sessions
+  const uploadSessions = new Map<string, { stationId: string; fileName: string; totalSize: number; chunkDir: string; receivedChunks: Set<number>; createdAt: number }>();
+
+  // Clean stale sessions every 30 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [sid, session] of uploadSessions) {
+      if (now - session.createdAt > 6 * 3600 * 1000) { // 6 hours
+        if (fs.existsSync(session.chunkDir)) fs.rmSync(session.chunkDir, { recursive: true, force: true });
+        uploadSessions.delete(sid);
+      }
+    }
+  }, 30 * 60 * 1000);
+
+  // 1) Init chunked upload session
+  app.post<{ Params: { id: string }; Body: { fileName: string; fileSize: number; chunkSize?: number } }>(
+    '/api/stations/:id/upload/init',
+    async (req) => {
+      const sessionId = uuid();
+      const chunksDir = path.join(__dirname, '..', '..', 'uploads', '_chunks', sessionId);
+      fs.mkdirSync(chunksDir, { recursive: true });
+
+      uploadSessions.set(sessionId, {
+        stationId: req.params.id,
+        fileName: req.body.fileName,
+        totalSize: req.body.fileSize,
+        chunkDir: chunksDir,
+        receivedChunks: new Set(),
+        createdAt: Date.now(),
+      });
+
+      return { sessionId, chunkSize: req.body.chunkSize || 10 * 1024 * 1024 };
+    }
+  );
+
+  // 2) Upload a single chunk
+  app.post<{ Params: { id: string; sessionId: string }; Querystring: { index: string } }>(
+    '/api/stations/:id/upload/chunk/:sessionId',
+    async (req, reply) => {
+      const session = uploadSessions.get(req.params.sessionId);
+      if (!session || session.stationId !== req.params.id) {
+        return reply.code(404).send({ error: 'Upload session not found' });
+      }
+
+      const chunkIndex = parseInt(req.query.index);
+      if (isNaN(chunkIndex)) return reply.code(400).send({ error: 'Invalid chunk index' });
+
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: 'No chunk data' });
+
+      const chunkPath = path.join(session.chunkDir, `chunk_${String(chunkIndex).padStart(6, '0')}`);
+      const writeStream = fs.createWriteStream(chunkPath);
+      await data.file.pipe(writeStream);
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+
+      session.receivedChunks.add(chunkIndex);
+
+      return { ok: true, chunkIndex, received: session.receivedChunks.size };
+    }
+  );
+
+  // 3) Status — which chunks have been received (for resume)
+  app.get<{ Params: { id: string; sessionId: string } }>(
+    '/api/stations/:id/upload/status/:sessionId',
+    async (req, reply) => {
+      const session = uploadSessions.get(req.params.sessionId);
+      if (!session || session.stationId !== req.params.id) {
+        return reply.code(404).send({ error: 'Upload session not found' });
+      }
+      return {
+        sessionId: req.params.sessionId,
+        receivedChunks: Array.from(session.receivedChunks).sort((a, b) => a - b),
+        totalExpected: Math.ceil(session.totalSize / (10 * 1024 * 1024)),
+      };
+    }
+  );
+
+  // 4) Complete — merge chunks into final file and create playlist item
+  app.post<{ Params: { id: string; sessionId: string } }>(
+    '/api/stations/:id/upload/complete/:sessionId',
+    async (req, reply) => {
+      const session = uploadSessions.get(req.params.sessionId);
+      if (!session || session.stationId !== req.params.id) {
+        return reply.code(404).send({ error: 'Upload session not found' });
+      }
+
+      const uploadsDir = path.join(__dirname, '..', '..', 'uploads', req.params.id);
+      fs.mkdirSync(uploadsDir, { recursive: true });
+
+      const itemId = uuid();
+      const ext = path.extname(session.fileName) || '.mp4';
+      const filename = `${itemId}${ext}`;
+      const finalPath = path.join(uploadsDir, filename);
+
+      // Merge chunks in order
+      const chunkFiles = fs.readdirSync(session.chunkDir)
+        .filter(f => f.startsWith('chunk_'))
+        .sort();
+
+      const writeStream = fs.createWriteStream(finalPath);
+      for (const chunkFile of chunkFiles) {
+        const chunkPath = path.join(session.chunkDir, chunkFile);
+        const data = fs.readFileSync(chunkPath);
+        writeStream.write(data);
+      }
+      await new Promise<void>((resolve, reject) => {
+        writeStream.end();
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+
+      // Clean up chunks
+      fs.rmSync(session.chunkDir, { recursive: true, force: true });
+      uploadSessions.delete(req.params.sessionId);
+
+      const fileStats = fs.statSync(finalPath);
+      const maxOrder = db.prepare('SELECT MAX(sort_order) as m FROM playlist_items WHERE station_id = ?').get(req.params.id) as any;
+      const sortOrder = (maxOrder?.m || 0) + 1;
+
+      db.prepare(
+        'INSERT INTO playlist_items (id, station_id, filename, original_name, file_size, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(itemId, req.params.id, filename, session.fileName, fileStats.size, sortOrder);
+
+      return db.prepare('SELECT * FROM playlist_items WHERE id = ?').get(itemId);
+    }
+  );
 
   // List playlist
   app.get<{ Params: { id: string } }>('/api/stations/:id/playlist', async (req) => {

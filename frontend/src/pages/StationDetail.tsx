@@ -8,7 +8,8 @@ import {
   ArrowLeft, Play, Square, RotateCw, Upload, Trash2, GripVertical,
   Eye, EyeOff, TestTube, Radio, Wifi, WifiOff, Image, RefreshCw,
   ChevronDown, ChevronUp, Settings, Music, Tv, Send, ScrollText,
-  Stethoscope, Palette, Globe, Download, AlertTriangle, Filter
+  Stethoscope, Palette, Globe, Download, AlertTriangle, Filter,
+  Pause, XCircle
 } from 'lucide-react';
 
 interface Props {
@@ -30,8 +31,11 @@ export default function StationDetail({ sse }: Props) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadPaused, setUploadPaused] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ pct: number; loaded: number; total: number; speed: number; fileName: string; fileIndex: number; fileCount: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadPausedRef = useRef(false);
+  const uploadAbortRef = useRef<AbortController | null>(null);
 
   const load = () => {
     if (!id) return;
@@ -83,6 +87,12 @@ export default function StationDetail({ sse }: Props) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
+    setUploadPaused(false);
+    uploadPausedRef.current = false;
+
+    const abortController = new AbortController();
+    uploadAbortRef.current = abortController;
+
     const fileList = Array.from(files);
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
@@ -92,22 +102,52 @@ export default function StationDetail({ sse }: Props) {
 
       setUploadProgress({ pct: 0, loaded: 0, total: file.size, speed: 0, fileName: file.name, fileIndex: i + 1, fileCount: fileList.length });
 
-      await api.uploadVideo(id, file, (pct, loaded, total) => {
-        const now = Date.now();
-        const elapsed = (now - lastTime) / 1000;
-        if (elapsed > 0.3) {
-          speed = (loaded - lastLoaded) / elapsed;
-          lastLoaded = loaded;
-          lastTime = now;
+      try {
+        await api.uploadVideo(
+          id!,
+          file,
+          (pct, loaded, total) => {
+            const now = Date.now();
+            const elapsed = (now - lastTime) / 1000;
+            if (elapsed > 0.3) {
+              speed = (loaded - lastLoaded) / elapsed;
+              lastLoaded = loaded;
+              lastTime = now;
+            }
+            setUploadProgress({ pct, loaded, total, speed, fileName: file.name, fileIndex: i + 1, fileCount: fileList.length });
+          },
+          {
+            isPaused: () => uploadPausedRef.current,
+            onPaused: () => setUploadPaused(true),
+            signal: abortController.signal,
+          }
+        );
+      } catch (err: any) {
+        if (err.message === 'Upload cancelled') {
+          break; // stop uploading remaining files
         }
-        setUploadProgress({ pct, loaded, total, speed, fileName: file.name, fileIndex: i + 1, fileCount: fileList.length });
-      });
+        console.error('Upload error:', err);
+      }
     }
     setUploading(false);
+    setUploadPaused(false);
     setUploadProgress(null);
+    uploadAbortRef.current = null;
     load();
-    // Reset file input so same file can be re-uploaded
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const toggleUploadPause = () => {
+    uploadPausedRef.current = !uploadPausedRef.current;
+    setUploadPaused(uploadPausedRef.current);
+  };
+
+  const cancelUpload = () => {
+    uploadAbortRef.current?.abort();
+    setUploading(false);
+    setUploadPaused(false);
+    setUploadProgress(null);
+    uploadAbortRef.current = null;
   };
 
   const moveItem = async (index: number, direction: 'up' | 'down') => {
@@ -269,27 +309,49 @@ export default function StationDetail({ sse }: Props) {
             {uploadProgress && (
               <div className="card space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-300 font-medium truncate max-w-[50%]">
+                  <span className="text-gray-300 font-medium truncate max-w-[40%]">
                     📤 {uploadProgress.fileName}
                     {uploadProgress.fileCount > 1 && <span className="text-gray-500 ml-1">({uploadProgress.fileIndex}/{uploadProgress.fileCount})</span>}
                   </span>
-                  <span className="text-gray-400 font-mono">
-                    {uploadProgress.pct}%
-                    {uploadProgress.speed > 0 && <> • {formatUploadSpeed(uploadProgress.speed)}</>}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 font-mono">
+                      {uploadProgress.pct}%
+                      {uploadProgress.speed > 0 && !uploadPaused && <> • {formatUploadSpeed(uploadProgress.speed)}</>}
+                      {uploadPaused && <span className="text-yellow-400 ml-1">⏸ Paused</span>}
+                    </span>
+                    {uploadProgress.pct < 100 && (
+                      <>
+                        <button
+                          onClick={toggleUploadPause}
+                          className={`p-1 rounded ${uploadPaused ? 'bg-green-600 hover:bg-green-500' : 'bg-yellow-600 hover:bg-yellow-500'} text-white transition-colors`}
+                          title={uploadPaused ? 'Resume upload' : 'Pause upload'}
+                        >
+                          {uploadPaused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+                        </button>
+                        <button
+                          onClick={cancelUpload}
+                          className="p-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                          title="Cancel upload"
+                        >
+                          <XCircle className="w-3 h-3" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
                   <div
-                    className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-blue-600 to-blue-400"
+                    className={`h-full rounded-full transition-all duration-300 ease-out ${uploadPaused ? 'bg-gradient-to-r from-yellow-600 to-yellow-400' : 'bg-gradient-to-r from-blue-600 to-blue-400'}`}
                     style={{ width: `${uploadProgress.pct}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-gray-500">
                   <span>{formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}</span>
-                  {uploadProgress.speed > 0 && uploadProgress.pct < 100 && (
+                  {uploadProgress.speed > 0 && uploadProgress.pct < 100 && !uploadPaused && (
                     <span>ETA: {formatEta((uploadProgress.total - uploadProgress.loaded) / uploadProgress.speed)}</span>
                   )}
-                  {uploadProgress.pct >= 100 && <span className="text-green-400">✓ Processing on server...</span>}
+                  {uploadPaused && <span className="text-yellow-400">Upload paused — click ▶ to resume</span>}
+                  {uploadProgress.pct >= 100 && <span className="text-green-400">✓ Merging chunks on server...</span>}
                 </div>
               </div>
             )}

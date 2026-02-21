@@ -60,7 +60,9 @@ export const api = {
 
   // Playlist
   getPlaylist: (stationId: string) => request<any[]>(`/stations/${stationId}/playlist`),
-  uploadVideo: (stationId: string, file: File, onProgress?: (pct: number, loaded: number, total: number) => void): Promise<any> => {
+
+  // Legacy single-request upload (for files under 500MB)
+  uploadVideoSimple: (stationId: string, file: File, onProgress?: (pct: number, loaded: number, total: number) => void): Promise<any> => {
     return new Promise((resolve, reject) => {
       const formData = new FormData();
       formData.append('file', file);
@@ -84,6 +86,110 @@ export const api = {
       xhr.onabort = () => reject(new Error('Upload aborted'));
       xhr.send(formData);
     });
+  },
+
+  // Chunked upload with pause/resume support (for large files)
+  uploadVideoChunked: async (
+    stationId: string,
+    file: File,
+    opts: {
+      onProgress?: (pct: number, loaded: number, total: number, chunkIndex: number, totalChunks: number) => void;
+      isPaused: () => boolean;       // callback to check if paused
+      onPaused?: () => void;         // called when upload is actually paused
+      signal?: AbortSignal;          // for cancel
+    }
+  ): Promise<any> => {
+    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const token = getToken();
+
+    // 1) Init session
+    const initResp = await fetch(`${API}/stations/${stationId}/upload/init`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ fileName: file.name, fileSize: file.size, chunkSize: CHUNK_SIZE }),
+      signal: opts.signal,
+    });
+    if (initResp.status === 401) { handle401(); throw new Error('Unauthorized'); }
+    const { sessionId } = await initResp.json();
+
+    // 2) Upload chunks
+    let uploadedBytes = 0;
+    for (let i = 0; i < totalChunks; i++) {
+      // Check pause
+      while (opts.isPaused()) {
+        opts.onPaused?.();
+        await new Promise(r => setTimeout(r, 300));
+        if (opts.signal?.aborted) throw new Error('Upload cancelled');
+      }
+
+      if (opts.signal?.aborted) throw new Error('Upload cancelled');
+
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      const formData = new FormData();
+      formData.append('file', chunk, `chunk_${i}`);
+
+      // Upload chunk with retry (up to 3 retries)
+      let retries = 0;
+      while (retries < 3) {
+        try {
+          const resp = await fetch(`${API}/stations/${stationId}/upload/chunk/${sessionId}?index=${i}`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+            signal: opts.signal,
+          });
+          if (resp.status === 401) { handle401(); throw new Error('Unauthorized'); }
+          if (!resp.ok) throw new Error(`Chunk ${i} failed: ${resp.status}`);
+          break; // success
+        } catch (err: any) {
+          if (err.message === 'Upload cancelled' || opts.signal?.aborted) throw err;
+          retries++;
+          if (retries >= 3) throw new Error(`Chunk ${i} failed after 3 retries`);
+          await new Promise(r => setTimeout(r, 2000 * retries)); // wait before retry
+        }
+      }
+
+      uploadedBytes = end;
+      const pct = Math.round((uploadedBytes / file.size) * 100);
+      opts.onProgress?.(pct, uploadedBytes, file.size, i + 1, totalChunks);
+    }
+
+    // 3) Complete — merge on server
+    opts.onProgress?.(100, file.size, file.size, totalChunks, totalChunks);
+    const completeResp = await fetch(`${API}/stations/${stationId}/upload/complete/${sessionId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      signal: opts.signal,
+    });
+    if (completeResp.status === 401) { handle401(); throw new Error('Unauthorized'); }
+    return await completeResp.json();
+  },
+
+  // Smart upload: uses chunked for large files, simple for small ones
+  uploadVideo: async (
+    stationId: string,
+    file: File,
+    onProgress?: (pct: number, loaded: number, total: number) => void,
+    pauseControl?: { isPaused: () => boolean; onPaused?: () => void; signal?: AbortSignal }
+  ): Promise<any> => {
+    const CHUNKED_THRESHOLD = 500 * 1024 * 1024; // 500MB
+
+    if (file.size >= CHUNKED_THRESHOLD && pauseControl) {
+      // Use chunked upload for large files
+      return api.uploadVideoChunked(stationId, file, {
+        onProgress: (pct, loaded, total) => onProgress?.(pct, loaded, total),
+        isPaused: pauseControl.isPaused,
+        onPaused: pauseControl.onPaused,
+        signal: pauseControl.signal,
+      });
+    } else {
+      // Use simple XHR upload for small files
+      return api.uploadVideoSimple(stationId, file, onProgress);
+    }
   },
   reorderPlaylist: (stationId: string, items: { id: string; sort_order: number; is_enabled?: number }[]) =>
     request<any>(`/stations/${stationId}/playlist/reorder`, { method: 'PUT', body: JSON.stringify({ items }) }),
