@@ -561,6 +561,7 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
   const [fontSize, setFontSize] = useState(station.overlay_font_size);
   const [fontColor, setFontColor] = useState(station.overlay_font_color);
   const [fontFamily, setFontFamily] = useState(station.overlay_font_family || '');
+  const [fontFile, setFontFile] = useState(station.overlay_font_file || '');
   const [bgColor, setBgColor] = useState(station.overlay_bg_color);
   const [position, setPosition] = useState(station.overlay_position);
   const [enabled, setEnabled] = useState(!!station.overlay_enabled);
@@ -577,11 +578,64 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
   const [azStation, setAzStation] = useState(station.np_azuracast_station);
   const [iceUrl, setIceUrl] = useState(station.np_icecast_url);
 
+  // Font list
+  const [fonts, setFonts] = useState<{ system: any[]; google: any[]; custom: any[] }>({ system: [], google: [], custom: [] });
+  const [fontUploading, setFontUploading] = useState(false);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api.getFonts().then(setFonts).catch(() => {});
+  }, []);
+
+  const handleFontChange = (value: string) => {
+    // value format: "type:name:file" e.g. "google:Poppins:/usr/share/fonts/google/Poppins-Regular.ttf"
+    if (!value) {
+      setFontFamily('');
+      setFontFile('');
+      return;
+    }
+    const parts = value.split('::');
+    const name = parts[1] || value;
+    const file = parts[2] || '';
+    setFontFamily(name);
+    setFontFile(file);
+  };
+
+  // Build current select value from fontFamily+fontFile
+  const currentFontValue = (() => {
+    if (!fontFamily) return '';
+    // Try to match a Google or custom font by file
+    if (fontFile) {
+      const gf = fonts.google.find((f: any) => f.file === fontFile);
+      if (gf) return `google::${gf.name}::${gf.file}`;
+      const cf = fonts.custom.find((f: any) => f.file === fontFile);
+      if (cf) return `custom::${cf.name}::${cf.file}`;
+    }
+    // System font (no file)
+    const sf = fonts.system.find((f: any) => f.name === fontFamily);
+    if (sf) return `system::${sf.name}::`;
+    return `system::${fontFamily}::`;
+  })();
+
+  const uploadFont = async (file: File) => {
+    setFontUploading(true);
+    try {
+      const result = await api.uploadFont(file);
+      if (result.ok && result.font) {
+        setFonts(prev => ({ ...prev, custom: [...prev.custom, result.font] }));
+        setFontFamily(result.font.name);
+        setFontFile(result.font.file);
+      }
+    } catch {}
+    setFontUploading(false);
+  };
+
   const save = () => updateStation({
     overlay_enabled: enabled ? 1 : 0,
     overlay_font_size: fontSize,
     overlay_font_color: fontColor,
     overlay_font_family: fontFamily,
+    overlay_font_file: fontFile,
     overlay_bg_color: bgColor,
     overlay_position: position,
     overlay_shadow_x: shadowX,
@@ -623,25 +677,48 @@ function OverlayTab({ station, updateStation }: { station: Station; updateStatio
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Font Family</label>
-              <select className="select-field" title="Font Family" value={fontFamily} onChange={e => setFontFamily(e.target.value)}>
+              <select className="select-field" title="Font Family" value={currentFontValue} onChange={e => handleFontChange(e.target.value)}>
                 <option value="">System Default</option>
-                <option value="DejaVu Sans">DejaVu Sans</option>
-                <option value="DejaVu Sans Mono">DejaVu Sans Mono</option>
-                <option value="DejaVu Serif">DejaVu Serif</option>
-                <option value="Liberation Sans">Liberation Sans (Arial-like)</option>
-                <option value="Liberation Serif">Liberation Serif (Times-like)</option>
-                <option value="Liberation Mono">Liberation Mono (Courier-like)</option>
-                <option value="Noto Sans">Noto Sans</option>
-                <option value="Noto Serif">Noto Serif</option>
-                <option value="FreeSans">FreeSans</option>
-                <option value="FreeSerif">FreeSerif</option>
-                <option value="FreeMono">FreeMono</option>
+                {fonts.google.length > 0 && (
+                  <optgroup label="★ Google Fonts (Canva favorites)">
+                    {fonts.google.map((f: any) => (
+                      <option key={f.file} value={`google::${f.name}::${f.file}`}>{f.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {fonts.custom.length > 0 && (
+                  <optgroup label="📁 Custom Uploaded Fonts">
+                    {fonts.custom.map((f: any) => (
+                      <option key={f.file} value={`custom::${f.name}::${f.file}`}>{f.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="System Fonts (Docker)">
+                  {fonts.system.map((f: any) => (
+                    <option key={f.name} value={`system::${f.name}::`}>{f.name}</option>
+                  ))}
+                </optgroup>
               </select>
-              <p className="text-[10px] text-gray-600 mt-1">Fonts disponibile pe server Docker. Pentru fonturi custom, uploadează .ttf și specifică în Font File.</p>
+              {fontFile && <p className="text-[10px] text-gray-600 mt-1 font-mono truncate">📄 {fontFile}</p>}
             </div>
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">Font File (opțional, cale .ttf)</label>
-              <input className="input-field" value={station.overlay_font_file} placeholder="/app/uploads/fonts/custom.ttf" disabled title="Custom font file path" />
+              <label className="text-xs text-gray-500 mb-1 block">Upload Custom Font</label>
+              <input
+                ref={fontInputRef}
+                type="file"
+                accept=".ttf,.otf,.woff,.woff2"
+                className="hidden"
+                title="Upload custom font file"
+                onChange={e => { if (e.target.files?.[0]) uploadFont(e.target.files[0]); }}
+              />
+              <button
+                onClick={() => fontInputRef.current?.click()}
+                disabled={fontUploading}
+                className="px-3 py-2 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 transition flex items-center gap-1.5 w-full justify-center"
+              >
+                {fontUploading ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Uploading...</> : <><Upload className="w-3.5 h-3.5" /> Upload .ttf / .otf</>}
+              </button>
+              <p className="text-[10px] text-gray-600 mt-1">Upload fonturi custom (ex: Nourd, brand fonts)</p>
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Track Font Size</label>

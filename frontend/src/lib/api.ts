@@ -122,6 +122,20 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
+  // Fonts
+  getFonts: () => request<{ system: any[]; google: any[]; custom: any[] }>('/fonts'),
+  uploadFont: async (file: File) => {
+    const token = getToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API}/fonts/upload`, { method: 'POST', headers, body: formData });
+    if (res.status === 401) { handle401(); throw new Error('Session expired'); }
+    return res.json();
+  },
+  deleteFont: (filename: string) => request<any>(`/fonts/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+
   // System
   getSystemHealth: () => request<any>('/system/health'),
 };

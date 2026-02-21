@@ -144,6 +144,108 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
     }
   );
 
+  // ─── FONTS ──────────────────────────────────────────────
+
+  // List all available fonts (system + Google + custom uploaded)
+  app.get('/api/fonts', async () => {
+    const fontsDir = path.join(__dirname, '..', '..', 'uploads', 'fonts');
+    const customFonts: { name: string; file: string }[] = [];
+
+    if (fs.existsSync(fontsDir)) {
+      const files = fs.readdirSync(fontsDir).filter(f => /\.(ttf|otf|woff|woff2)$/i.test(f));
+      for (const file of files) {
+        const name = file.replace(/\.(ttf|otf|woff|woff2)$/i, '').replace(/[-_]/g, ' ');
+        customFonts.push({ name, file: path.join(fontsDir, file) });
+      }
+    }
+
+    // Google Fonts installed in Docker (fontfile paths)
+    const googleFonts = [
+      { name: 'Poppins', file: '/usr/share/fonts/google/Poppins-Regular.ttf' },
+      { name: 'Poppins Bold', file: '/usr/share/fonts/google/Poppins-Bold.ttf' },
+      { name: 'Poppins SemiBold', file: '/usr/share/fonts/google/Poppins-SemiBold.ttf' },
+      { name: 'Poppins Light', file: '/usr/share/fonts/google/Poppins-Light.ttf' },
+      { name: 'Poppins ExtraBold', file: '/usr/share/fonts/google/Poppins-ExtraBold.ttf' },
+      { name: 'League Spartan', file: '/usr/share/fonts/google/LeagueSpartan.ttf' },
+      { name: 'Montserrat', file: '/usr/share/fonts/google/Montserrat.ttf' },
+      { name: 'Oswald', file: '/usr/share/fonts/google/Oswald.ttf' },
+      { name: 'Raleway', file: '/usr/share/fonts/google/Raleway.ttf' },
+      { name: 'Roboto', file: '/usr/share/fonts/google/Roboto.ttf' },
+      { name: 'Open Sans', file: '/usr/share/fonts/google/OpenSans.ttf' },
+      { name: 'Lato', file: '/usr/share/fonts/google/Lato-Regular.ttf' },
+      { name: 'Lato Bold', file: '/usr/share/fonts/google/Lato-Bold.ttf' },
+      { name: 'Bebas Neue', file: '/usr/share/fonts/google/BebasNeue-Regular.ttf' },
+      { name: 'Playfair Display', file: '/usr/share/fonts/google/PlayfairDisplay.ttf' },
+      { name: 'Inter', file: '/usr/share/fonts/google/Inter.ttf' },
+      { name: 'Nunito', file: '/usr/share/fonts/google/Nunito.ttf' },
+      { name: 'Space Grotesk', file: '/usr/share/fonts/google/SpaceGrotesk.ttf' },
+      { name: 'Archivo Black', file: '/usr/share/fonts/google/ArchivoBlack-Regular.ttf' },
+      { name: 'Anton', file: '/usr/share/fonts/google/Anton-Regular.ttf' },
+      { name: 'Comfortaa', file: '/usr/share/fonts/google/Comfortaa.ttf' },
+      { name: 'Quicksand', file: '/usr/share/fonts/google/Quicksand.ttf' },
+      { name: 'Kanit', file: '/usr/share/fonts/google/Kanit-Regular.ttf' },
+      { name: 'Kanit Bold', file: '/usr/share/fonts/google/Kanit-Bold.ttf' },
+    ];
+
+    // System fonts (Alpine packages)
+    const systemFonts = [
+      { name: 'DejaVu Sans', file: '' },
+      { name: 'DejaVu Sans Mono', file: '' },
+      { name: 'DejaVu Serif', file: '' },
+      { name: 'Liberation Sans', file: '' },
+      { name: 'Liberation Serif', file: '' },
+      { name: 'Liberation Mono', file: '' },
+      { name: 'Noto Sans', file: '' },
+      { name: 'Noto Serif', file: '' },
+      { name: 'FreeSans', file: '' },
+      { name: 'FreeSerif', file: '' },
+      { name: 'FreeMono', file: '' },
+    ];
+
+    // Check which Google fonts actually exist on disk
+    const availableGoogle = googleFonts.filter(f => fs.existsSync(f.file));
+
+    return { system: systemFonts, google: availableGoogle, custom: customFonts };
+  });
+
+  // Upload custom font (.ttf/.otf)
+  app.post('/api/fonts/upload', async (req, reply) => {
+    const data = await req.file();
+    if (!data) return reply.code(400).send({ error: 'No file uploaded' });
+
+    const ext = path.extname(data.filename).toLowerCase();
+    if (!['.ttf', '.otf', '.woff', '.woff2'].includes(ext)) {
+      return reply.code(400).send({ error: 'Only .ttf, .otf, .woff, .woff2 files are allowed' });
+    }
+
+    const fontsDir = path.join(__dirname, '..', '..', 'uploads', 'fonts');
+    fs.mkdirSync(fontsDir, { recursive: true });
+
+    const safeFilename = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = path.join(fontsDir, safeFilename);
+
+    const writeStream = fs.createWriteStream(filePath);
+    await data.file.pipe(writeStream);
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+
+    const name = safeFilename.replace(/\.(ttf|otf|woff|woff2)$/i, '').replace(/[-_]/g, ' ');
+    return { ok: true, font: { name, file: filePath, filename: safeFilename } };
+  });
+
+  // Delete custom font
+  app.delete<{ Params: { filename: string } }>('/api/fonts/:filename', async (req, reply) => {
+    const fontsDir = path.join(__dirname, '..', '..', 'uploads', 'fonts');
+    const filePath = path.join(fontsDir, req.params.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return { ok: true };
+    }
+    return reply.code(404).send({ error: 'Font not found' });
+  });
+
   // ─── PLAYLIST (video upload + management) ─────────────
 
   // Upload MP4
