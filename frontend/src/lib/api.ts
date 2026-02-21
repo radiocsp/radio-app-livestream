@@ -100,6 +100,26 @@ export const api = {
 
   // Logs
   getLogs: (stationId: string, limit = 100) => request<any[]>(`/stations/${stationId}/logs?limit=${limit}`),
+  exportLogsCsv: async (stationId: string, level?: string) => {
+    const token = getToken();
+    const params = level ? `?level=${level}` : '';
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API}/stations/${stationId}/logs/export${params}`, { headers });
+    if (res.status === 401) { handle401(); throw new Error('Session expired'); }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : `logs-${stationId}.csv`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 
   // System
   getSystemHealth: () => request<any>('/system/health'),

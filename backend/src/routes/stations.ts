@@ -337,4 +337,42 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
         .all(req.params.id, limit);
     }
   );
+
+  // ─── EXPORT LOGS AS CSV ──────────────────────────────────
+
+  app.get<{ Params: { id: string }; Querystring: { level?: string } }>(
+    '/api/stations/:id/logs/export',
+    async (req, reply) => {
+      const level = req.query.level;
+      let rows: any[];
+      if (level) {
+        rows = db.prepare('SELECT * FROM station_logs WHERE station_id = ? AND level = ? ORDER BY created_at DESC')
+          .all(req.params.id, level);
+      } else {
+        rows = db.prepare('SELECT * FROM station_logs WHERE station_id = ? ORDER BY created_at DESC')
+          .all(req.params.id);
+      }
+
+      const station = db.prepare('SELECT name, slug FROM stations WHERE id = ?').get(req.params.id) as any;
+      const filename = `logs-${station?.slug || req.params.id}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+      // Build CSV
+      const escapeCsv = (val: string) => `"${String(val).replace(/"/g, '""')}"`;
+      const header = 'Date,Time,Level,Source,Message';
+      const lines = rows.map((r: any) => {
+        const dt = new Date(r.created_at);
+        return [
+          dt.toISOString().slice(0, 10),
+          dt.toISOString().slice(11, 19),
+          r.level,
+          r.source,
+          escapeCsv(r.message),
+        ].join(',');
+      });
+
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+      return header + '\n' + lines.join('\n');
+    }
+  );
 }

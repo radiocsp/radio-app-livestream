@@ -8,7 +8,7 @@ import {
   ArrowLeft, Play, Square, RotateCw, Upload, Trash2, GripVertical,
   Eye, EyeOff, TestTube, Radio, Wifi, WifiOff, Image, RefreshCw,
   ChevronDown, ChevronUp, Settings, Music, Tv, Send, ScrollText,
-  Stethoscope, Palette, Globe
+  Stethoscope, Palette, Globe, Download, AlertTriangle, Filter
 } from 'lucide-react';
 
 interface Props {
@@ -24,6 +24,7 @@ export default function StationDetail({ sse }: Props) {
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [destinations, setDestinations] = useState<RtmpDestination[]>([]);
   const [logs, setLogs] = useState<StationLog[]>([]);
+  const [logFilter, setLogFilter] = useState<'all' | 'errors'>('all');
   const [tab, setTab] = useState<Tab>('playlist');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -285,26 +286,94 @@ export default function StationDetail({ sse }: Props) {
         {tab === 'overlay' && <OverlayTab station={station} updateStation={updateStation} />}
 
         {/* ─── LOGS ──────────────────────────────── */}
-        {tab === 'logs' && (
-          <div className="card max-h-[600px] overflow-y-auto font-mono text-xs">
-            {logs.length === 0 ? (
-              <p className="text-gray-600 p-4">No logs yet</p>
-            ) : (
-              logs.map((log, i) => (
-                <div key={log.id || i} className={`log-line flex gap-3 ${
-                  log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-amber-400' : 'text-gray-400'
-                }`}>
-                  <span className="text-gray-600 shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
-                  <span className={`shrink-0 w-12 ${
-                    log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : 'text-gray-600'
-                  }`}>{log.level}</span>
-                  <span className="text-gray-600 shrink-0 w-16">[{log.source}]</span>
-                  <span className="break-all">{log.message}</span>
+        {tab === 'logs' && (() => {
+          const errorLogs = logs.filter(l => l.level === 'error' || l.level === 'warn');
+          const displayLogs = logFilter === 'errors' ? errorLogs : logs;
+
+          return (
+            <div className="space-y-4">
+              {/* Toolbar */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setLogFilter('all')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                      logFilter === 'all'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    <ScrollText className="w-3.5 h-3.5 inline mr-1" />
+                    All Logs ({logs.length})
+                  </button>
+                  <button
+                    onClick={() => setLogFilter('errors')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                      logFilter === 'errors'
+                        ? 'bg-red-600 text-white'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+                    Errors & Warnings ({errorLogs.length})
+                  </button>
                 </div>
-              ))
-            )}
-          </div>
-        )}
+                <button
+                  onClick={() => id && api.exportLogsCsv(id, logFilter === 'errors' ? 'error' : undefined)}
+                  className="px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 transition flex items-center gap-1.5"
+                  title="Export logs as CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export CSV
+                </button>
+              </div>
+
+              {/* Error summary banner */}
+              {errorLogs.length > 0 && logFilter === 'all' && (
+                <div className="bg-red-950/40 border border-red-800/50 rounded-lg p-3 flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-red-300 text-sm font-medium">
+                      {errorLogs.filter(l => l.level === 'error').length} error(s), {errorLogs.filter(l => l.level === 'warn').length} warning(s) detected
+                    </p>
+                    <p className="text-red-400/70 text-xs mt-1">
+                      Last error: {errorLogs[0] ? new Date(errorLogs[0].created_at).toLocaleString() : '—'}
+                      {errorLogs[0] && <span className="ml-2">— {errorLogs[0].message.slice(0, 120)}{errorLogs[0].message.length > 120 ? '…' : ''}</span>}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setLogFilter('errors')}
+                    className="text-red-400 hover:text-red-300 text-xs underline shrink-0"
+                  >
+                    View all errors →
+                  </button>
+                </div>
+              )}
+
+              {/* Log entries */}
+              <div className="card max-h-[600px] overflow-y-auto font-mono text-xs">
+                {displayLogs.length === 0 ? (
+                  <p className="text-gray-600 p-4">
+                    {logFilter === 'errors' ? 'No errors or warnings 🎉' : 'No logs yet'}
+                  </p>
+                ) : (
+                  displayLogs.map((log, i) => (
+                    <div key={log.id || i} className={`log-line flex gap-3 ${
+                      log.level === 'error' ? 'text-red-400 bg-red-950/20' : log.level === 'warn' ? 'text-amber-400 bg-amber-950/10' : 'text-gray-400'
+                    }`}>
+                      <span className="text-gray-600 shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
+                      <span className={`shrink-0 w-12 ${
+                        log.level === 'error' ? 'text-red-500 font-bold' : log.level === 'warn' ? 'text-amber-500 font-bold' : 'text-gray-600'
+                      }`}>{log.level}</span>
+                      <span className="text-gray-600 shrink-0 w-16">[{log.source}]</span>
+                      <span className="break-all">{log.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ─── DIAGNOSTICS ───────────────────────── */}
         {tab === 'diagnostics' && <DiagnosticsTab station={station} sources={sources} destinations={destinations} />}
