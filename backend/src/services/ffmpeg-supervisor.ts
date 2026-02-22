@@ -410,6 +410,7 @@ export class FFmpegSupervisor extends EventEmitter {
     }
 
     this.emit('log', stationId, 'info', 'app', `Launching FFmpeg with ${destinations.length} destination(s)`);
+    console.log(`[FFMPEG] Launching for station=${stationId} with ${destinations.length} destination(s), PID will follow...`);
     this.setProcessStatus(stationId, 'starting', '');
 
     const ffmpeg = spawn('ffmpeg', args, {
@@ -427,11 +428,26 @@ export class FFmpegSupervisor extends EventEmitter {
     this.processes.set(stationId, proc);
     this.updateDbStatus(stationId, 'running');
     this.emit('status', stationId, 'running');
+    console.log(`[FFMPEG] Started for station=${stationId}, PID=${ffmpeg.pid}`);
 
     ffmpeg.stderr?.on('data', (data: Buffer) => {
       const line = data.toString().trim();
       if (line) {
-        this.emit('log', stationId, 'debug', 'ffmpeg', line);
+        // Log important FFmpeg stderr lines to stdout for docker logs persistence
+        // Progress frames (frame=, size=, time=, speed=) stay debug-only
+        const isProgress = /^(frame|size|bitrate|speed|fps)\s*=/.test(line) || /^\s*(frame|size)=/.test(line);
+        if (!isProgress) {
+          // Non-progress stderr lines often contain errors, warnings, codec info
+          const isError = /error|failed|invalid|corrupt|broken|fault/i.test(line);
+          if (isError) {
+            console.error(`[FFMPEG-STDERR] station=${stationId}: ${line}`);
+            this.emit('log', stationId, 'error', 'ffmpeg', line);
+          } else {
+            this.emit('log', stationId, 'debug', 'ffmpeg', line);
+          }
+        } else {
+          this.emit('log', stationId, 'debug', 'ffmpeg', line);
+        }
       }
     });
 
@@ -443,6 +459,7 @@ export class FFmpegSupervisor extends EventEmitter {
     });
 
     ffmpeg.on('close', (code) => {
+      console.log(`[FFMPEG] Exited with code ${code} for station=${stationId}, restartCount=${proc.restartCount}`);
       this.emit('log', stationId, 'info', 'app', `FFmpeg exited with code ${code}`);
       if (proc.status !== 'stopped') {
         proc.status = 'error';
@@ -453,6 +470,7 @@ export class FFmpegSupervisor extends EventEmitter {
         if (station.auto_restart && proc.restartCount < station.max_restart_attempts) {
           const delay = Math.min(station.restart_delay_sec * 1000 * Math.pow(1.5, proc.restartCount), 60000);
           proc.restartCount++;
+          console.log(`[FFMPEG] Auto-restart attempt ${proc.restartCount}/${station.max_restart_attempts} in ${Math.round(delay / 1000)}s for station=${stationId}`);
           this.emit('log', stationId, 'info', 'app', `Auto-restart attempt ${proc.restartCount} in ${Math.round(delay / 1000)}s`);
 
           const timer = setTimeout(() => {
@@ -464,6 +482,7 @@ export class FFmpegSupervisor extends EventEmitter {
     });
 
     ffmpeg.on('error', (err) => {
+      console.error(`[FFMPEG] Process error for station=${stationId}: ${err.message}`);
       proc.status = 'error';
       proc.lastError = err.message;
       this.emit('log', stationId, 'error', 'app', `FFmpeg error: ${err.message}`);

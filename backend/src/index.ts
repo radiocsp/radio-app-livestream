@@ -70,27 +70,37 @@ async function main() {
   // Create FFmpeg supervisor
   const supervisor = new FFmpegSupervisor(DATA_DIR);
 
-  // Store logs in DB
+  // Store logs in DB (skip debug — they flood the table and wipe important entries)
   supervisor.on('log', (stationId: string, level: string, source: string, message: string) => {
-    try {
-      const db = getDb();
-      db.prepare('INSERT INTO station_logs (station_id, level, source, message) VALUES (?, ?, ?, ?)')
-        .run(stationId, level, source, message);
-      // Keep only last 1000 logs per station
-      db.prepare('DELETE FROM station_logs WHERE station_id = ? AND id NOT IN (SELECT id FROM station_logs WHERE station_id = ? ORDER BY created_at DESC LIMIT 1000)')
-        .run(stationId, stationId);
+    // Always log important events to stdout (persists in docker logs)
+    if (level === 'error' || level === 'warn') {
+      console.error(`[${level.toUpperCase()}] [${source}] station=${stationId}: ${message}`);
+    } else if (level === 'info') {
+      console.log(`[INFO] [${source}] station=${stationId}: ${message}`);
+    }
 
-      // Send Telegram notification for errors
-      if (level === 'error') {
-        const station = db.prepare('SELECT name, telegram_enabled, telegram_bot_token, telegram_chat_id FROM stations WHERE id = ?').get(stationId) as any;
-        if (station?.telegram_enabled && station.telegram_bot_token && station.telegram_chat_id) {
-          sendTelegramError(station.telegram_bot_token, station.telegram_chat_id, station.name, stationId, level, source, message)
-            .catch(() => {}); // fire-and-forget
+    // Only persist non-debug logs to DB to preserve crash/restart history
+    if (level !== 'debug') {
+      try {
+        const db = getDb();
+        db.prepare('INSERT INTO station_logs (station_id, level, source, message) VALUES (?, ?, ?, ?)')
+          .run(stationId, level, source, message);
+        // Keep last 5000 non-debug logs per station (enough for days of history)
+        db.prepare('DELETE FROM station_logs WHERE station_id = ? AND id NOT IN (SELECT id FROM station_logs WHERE station_id = ? ORDER BY created_at DESC LIMIT 5000)')
+          .run(stationId, stationId);
+
+        // Send Telegram notification for errors
+        if (level === 'error') {
+          const station = db.prepare('SELECT name, telegram_enabled, telegram_bot_token, telegram_chat_id FROM stations WHERE id = ?').get(stationId) as any;
+          if (station?.telegram_enabled && station.telegram_bot_token && station.telegram_chat_id) {
+            sendTelegramError(station.telegram_bot_token, station.telegram_chat_id, station.name, stationId, level, source, message)
+              .catch(() => {}); // fire-and-forget
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
-    // Broadcast to SSE clients
+    // Broadcast to SSE clients (all levels including debug for real-time view)
     broadcastSSE({ type: 'log', stationId, level, source, message, timestamp: new Date().toISOString() });
   });
 

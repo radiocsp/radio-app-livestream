@@ -3,10 +3,39 @@ import { getDb } from '../db/schema';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
 import { FFmpegSupervisor } from '../services/ffmpeg-supervisor';
 import { checkAudioSource, testRtmpDestination, runAudioHealthChecks } from '../services/health-check';
 import { NowPlayingService } from '../services/now-playing';
 import { sendTelegramTest } from '../services/telegram';
+
+/**
+ * Probe video duration using ffprobe.
+ * Returns duration in seconds (float), or null on failure.
+ */
+function probeDuration(filePath: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    execFile('ffprobe', [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_format',
+      filePath,
+    ], { timeout: 30000 }, (err, stdout) => {
+      if (err) {
+        console.error(`[FFPROBE] Error probing ${filePath}: ${err.message}`);
+        return resolve(null);
+      }
+      try {
+        const data = JSON.parse(stdout);
+        const duration = parseFloat(data?.format?.duration);
+        if (isFinite(duration) && duration > 0) {
+          return resolve(Math.round(duration));
+        }
+      } catch {}
+      resolve(null);
+    });
+  });
+}
 
 export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSupervisor) {
   const db = getDb();
@@ -415,6 +444,16 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
         'INSERT INTO playlist_items (id, station_id, filename, original_name, file_size, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(itemId, req.params.id, filename, session.fileName, fileStats.size, sortOrder);
 
+      // Auto-detect duration with ffprobe (non-blocking — updates DB in background)
+      probeDuration(finalPath).then((duration) => {
+        if (duration) {
+          db.prepare('UPDATE playlist_items SET duration_sec = ? WHERE id = ?').run(duration, itemId);
+          console.log(`[FFPROBE] Detected duration=${duration}s for ${session.fileName} (item=${itemId})`);
+        } else {
+          console.warn(`[FFPROBE] Could not detect duration for ${session.fileName}`);
+        }
+      });
+
       return db.prepare('SELECT * FROM playlist_items WHERE id = ?').get(itemId);
     }
   );
@@ -475,6 +514,30 @@ export function registerStationRoutes(app: FastifyInstance, supervisor: FFmpegSu
       return { ok: true, action: 'playlist_updated_and_restarted' };
     }
     return { ok: true, action: 'playlist_updated' };
+  });
+
+  // Scan all playlist items and auto-detect missing durations with ffprobe
+  app.post<{ Params: { id: string } }>('/api/stations/:id/playlist/probe-durations', async (req) => {
+    const items = db.prepare(
+      'SELECT id, filename FROM playlist_items WHERE station_id = ? AND duration_sec IS NULL'
+    ).all(req.params.id) as any[];
+
+    const uploadsDir = path.join(__dirname, '..', '..', 'uploads', req.params.id);
+    let updated = 0;
+
+    for (const item of items) {
+      const filePath = path.join(uploadsDir, item.filename);
+      if (fs.existsSync(filePath)) {
+        const duration = await probeDuration(filePath);
+        if (duration) {
+          db.prepare('UPDATE playlist_items SET duration_sec = ? WHERE id = ?').run(duration, item.id);
+          updated++;
+          console.log(`[FFPROBE] Backfill: ${item.filename} → ${duration}s`);
+        }
+      }
+    }
+
+    return { ok: true, scanned: items.length, updated };
   });
 
   // ─── RTMP DESTINATIONS ───────────────────────────────────
