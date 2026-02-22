@@ -70,6 +70,10 @@ async function main() {
   // Create FFmpeg supervisor
   const supervisor = new FFmpegSupervisor(DATA_DIR);
 
+  // Telegram rate-limit: max 1 notification per station per 5 minutes to prevent spam
+  const telegramLastSent: Map<string, number> = new Map();
+  const TELEGRAM_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
   // Store logs in DB (skip debug — they flood the table and wipe important entries)
   supervisor.on('log', (stationId: string, level: string, source: string, message: string) => {
     // Always log important events to stdout (persists in docker logs)
@@ -89,12 +93,17 @@ async function main() {
         db.prepare('DELETE FROM station_logs WHERE station_id = ? AND id NOT IN (SELECT id FROM station_logs WHERE station_id = ? ORDER BY created_at DESC LIMIT 5000)')
           .run(stationId, stationId);
 
-        // Send Telegram notification for errors
+        // Send Telegram notification for errors (rate-limited to prevent spam)
         if (level === 'error') {
-          const station = db.prepare('SELECT name, telegram_enabled, telegram_bot_token, telegram_chat_id FROM stations WHERE id = ?').get(stationId) as any;
-          if (station?.telegram_enabled && station.telegram_bot_token && station.telegram_chat_id) {
-            sendTelegramError(station.telegram_bot_token, station.telegram_chat_id, station.name, stationId, level, source, message)
-              .catch(() => {}); // fire-and-forget
+          const now = Date.now();
+          const lastSent = telegramLastSent.get(stationId) || 0;
+          if (now - lastSent >= TELEGRAM_COOLDOWN_MS) {
+            const station = db.prepare('SELECT name, telegram_enabled, telegram_bot_token, telegram_chat_id FROM stations WHERE id = ?').get(stationId) as any;
+            if (station?.telegram_enabled && station.telegram_bot_token && station.telegram_chat_id) {
+              telegramLastSent.set(stationId, now);
+              sendTelegramError(station.telegram_bot_token, station.telegram_chat_id, station.name, stationId, level, source, message)
+                .catch(() => {}); // fire-and-forget
+            }
           }
         }
       } catch {}
