@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
@@ -7,6 +7,7 @@ import { NowPlayingService } from './now-playing';
 
 interface StationProcess {
   ffmpeg: ChildProcess | null;
+  feeder: ChildProcess | null;  // Video feeder process (bash loop)
   status: 'stopped' | 'starting' | 'running' | 'restarting' | 'error';
   restartCount: number;
   lastError: string;
@@ -28,6 +29,7 @@ export class FFmpegSupervisor extends EventEmitter {
   getStationStatus(stationId: string): StationProcess {
     return this.processes.get(stationId) || {
       ffmpeg: null,
+      feeder: null,
       status: 'stopped',
       restartCount: 0,
       lastError: '',
@@ -74,14 +76,22 @@ export class FFmpegSupervisor extends EventEmitter {
 
   async stopStation(stationId: string): Promise<void> {
     const proc = this.processes.get(stationId);
-    if (proc?.ffmpeg) {
+    if (proc) {
       proc.status = 'stopped';
-      proc.ffmpeg.kill('SIGTERM');
-      setTimeout(() => {
-        if (proc.ffmpeg && !proc.ffmpeg.killed) {
-          proc.ffmpeg.kill('SIGKILL');
-        }
-      }, 5000);
+      // Kill feeder first
+      if (proc.feeder && !proc.feeder.killed) {
+        proc.feeder.kill('SIGTERM');
+        setTimeout(() => {
+          if (proc.feeder && !proc.feeder.killed) proc.feeder.kill('SIGKILL');
+        }, 3000);
+      }
+      // Kill FFmpeg
+      if (proc.ffmpeg && !proc.ffmpeg.killed) {
+        proc.ffmpeg.kill('SIGTERM');
+        setTimeout(() => {
+          if (proc.ffmpeg && !proc.ffmpeg.killed) proc.ffmpeg.kill('SIGKILL');
+        }, 5000);
+      }
     }
 
     // Stop now playing
@@ -128,24 +138,29 @@ export class FFmpegSupervisor extends EventEmitter {
     fs.mkdirSync(stationDir, { recursive: true });
 
     const uploadsDir = path.join(__dirname, '..', '..', 'uploads', stationId);
-    const lines = items.map(i => `file '${path.join(uploadsDir, i.filename)}'`);
 
     // Calculate how many repeats needed for 24h of content
-    // FFmpeg concat demuxer plays sequentially; -stream_loop doesn't work reliably with concat
     const totalDurationSec = items.reduce((sum: number, i: any) => sum + (i.duration_sec || 300), 0);
     const hoursTarget = 24;
     const repeats = Math.max(2, Math.ceil((hoursTarget * 3600) / totalDurationSec));
 
-    const repeatedLines: string[] = [];
-    for (let i = 0; i < repeats; i++) {
-      repeatedLines.push(...lines);
-    }
+    // Write file list (one file path per line, used by feeder script)
+    const fileList = items.map(i => path.join(uploadsDir, i.filename));
+    const fileListPath = path.join(stationDir, 'filelist.txt');
+    const tempPath = fileListPath + '.tmp';
+    fs.writeFileSync(tempPath, fileList.join('\n') + '\n');
+    fs.renameSync(tempPath, fileListPath);
 
-    // Write atomically: write to temp then rename
+    // Also write repeats count
+    const repeatsPath = path.join(stationDir, 'repeats.txt');
+    fs.writeFileSync(repeatsPath, String(repeats));
+
+    // Still write concat playlist for preview generation
+    const lines = items.map(i => `file '${path.join(uploadsDir, i.filename)}'`);
     const playlistPath = path.join(stationDir, 'playlist.txt');
-    const tempPath = playlistPath + '.tmp';
-    fs.writeFileSync(tempPath, repeatedLines.join('\n') + '\n');
-    fs.renameSync(tempPath, playlistPath);
+    const pTmp = playlistPath + '.tmp';
+    fs.writeFileSync(pTmp, lines.join('\n') + '\n');
+    fs.renameSync(pTmp, playlistPath);
 
     this.emit('log', stationId, 'info', 'app', `Playlist updated: ${items.length} items × ${repeats} repeats (${Math.round(totalDurationSec * repeats / 3600)}h)`);
   }
@@ -210,16 +225,19 @@ export class FFmpegSupervisor extends EventEmitter {
       return;
     }
 
-    const playlistPath = path.join(stationDir, 'playlist.txt');
+    const fileListPath = path.join(stationDir, 'filelist.txt');
+    const repeatsPath = path.join(stationDir, 'repeats.txt');
     const textFilePath = path.join(stationDir, 'nowplaying.txt');
     const artistFilePath = path.join(stationDir, 'artist.txt');
     const titleFilePath = path.join(stationDir, 'songtitle.txt');
 
-    if (!fs.existsSync(playlistPath)) {
-      this.emit('log', stationId, 'error', 'app', 'Playlist file not found');
+    if (!fs.existsSync(fileListPath)) {
+      this.emit('log', stationId, 'error', 'app', 'File list not found');
       this.setProcessStatus(stationId, 'error', 'No playlist');
       return;
     }
+
+    const repeats = parseInt(fs.readFileSync(repeatsPath, 'utf-8').trim()) || 5;
 
     // Build overlay drawtext filter (only if FFmpeg supports it)
     const overlayParts: string[] = [];
@@ -273,16 +291,10 @@ export class FFmpegSupervisor extends EventEmitter {
       const artistLineGap = artistFontSize + 8;
 
       if (isBottom) {
-        // Bottom positions: song title at bottom, artist above it
-        // If static label exists, it goes above artist
         const basePos = posMap[station.overlay_position] || posMap['bottom-left'];
-
-        // Song title (bottom-most line)
         overlayParts.push(
           `drawtext=textfile='${escapedTitlePath}':reload=1:${basePos}:${titleFontSpec}`
         );
-
-        // Artist (one line above song title)
         const artistPosMap: Record<string, string> = {
           'bottom-left': `x=${station.overlay_margin_x}:y=h-th-${station.overlay_margin_y}-${lineGap}`,
           'bottom-center': `x=(w-tw)/2:y=h-th-${station.overlay_margin_y}-${lineGap}`,
@@ -292,8 +304,6 @@ export class FFmpegSupervisor extends EventEmitter {
         overlayParts.push(
           `drawtext=textfile='${escapedArtistPath}':reload=1:${artistPos}:${artistFontSpec}`
         );
-
-        // Static label (e.g. "Ascultă acum:") — above artist
         if (station.overlay_title) {
           const labelGap = lineGap + artistLineGap;
           const labelPosMap: Record<string, string> = {
@@ -308,10 +318,7 @@ export class FFmpegSupervisor extends EventEmitter {
           );
         }
       } else {
-        // Top positions: static label at top, artist below, song title below artist
         let yOffset = station.overlay_margin_y;
-
-        // Static label first (if exists)
         if (station.overlay_title) {
           const labelPosMap: Record<string, string> = {
             'top-left': `x=${station.overlay_margin_x}:y=${yOffset}`,
@@ -325,8 +332,6 @@ export class FFmpegSupervisor extends EventEmitter {
           );
           yOffset += artistLineGap;
         }
-
-        // Artist line
         const artistPosMap: Record<string, string> = {
           'top-left': `x=${station.overlay_margin_x}:y=${yOffset}`,
           'top-center': `x=(w-tw)/2:y=${yOffset}`,
@@ -337,8 +342,6 @@ export class FFmpegSupervisor extends EventEmitter {
           `drawtext=textfile='${escapedArtistPath}':reload=1:${artistPos}:${artistFontSpec}`
         );
         yOffset += artistLineGap;
-
-        // Song title line
         const titlePosMap: Record<string, string> = {
           'top-left': `x=${station.overlay_margin_x}:y=${yOffset}`,
           'top-center': `x=(w-tw)/2:y=${yOffset}`,
@@ -351,49 +354,92 @@ export class FFmpegSupervisor extends EventEmitter {
       }
     }
 
-    // Normalize framerate from input to handle videos with different FPS (e.g. 34fps → 30fps)
-    // This prevents FFmpeg from stalling at video transitions in the concat playlist
-    const fpsFilter = `fps=${station.video_fps}`;
-    const scaleFilter = `scale=${station.video_width}:${station.video_height}:force_original_aspect_ratio=decrease,pad=${station.video_width}:${station.video_height}:(ow-iw)/2:(oh-ih)/2`;
-    const filterParts = [fpsFilter, scaleFilter, ...overlayParts];
-    const videoFilter = filterParts.join(',');
+    // ─── VIDEO FEEDER APPROACH ─────────────────────────────
+    // Instead of using concat demuxer (which CANNOT handle codec transitions like HEVC→H.264),
+    // we use a bash feeder script that decodes each video individually and pipes normalized
+    // MPEGTS (all H.264, same resolution/fps) to the main FFmpeg encoder via stdin.
+    // This completely eliminates codec mismatch errors at file transitions.
 
-    // Build FFmpeg args
-    // Key: concat demuxer can stall at file transitions if videos have different codecs (HEVC/H.264)
-    // Fix: err_detect ignore_err + large probesize + copytb for robust codec transitions
+    const feederScriptPath = path.join(stationDir, 'feeder.sh');
+    const feederScript = `#!/bin/sh
+# Video feeder: decodes each video individually, outputs uniform MPEGTS to stdout
+# This avoids concat demuxer codec mismatch issues (HEVC↔H.264 transitions)
+# IMPORTANT: stderr goes to fd2 (captured by Node), stdout is the video pipe
+FILELIST="${fileListPath}"
+REPEATS=${repeats}
+WIDTH=${station.video_width}
+HEIGHT=${station.video_height}
+FPS=${station.video_fps}
+
+for rep in $(seq 1 $REPEATS); do
+  while IFS= read -r videofile || [ -n "$videofile" ]; do
+    [ -z "$videofile" ] && continue
+    [ ! -f "$videofile" ] && continue
+    echo "FEEDER: Playing $videofile (repeat $rep)" >&2
+    # Decode any codec → re-encode to H.264 MPEGTS, normalized resolution/fps
+    # -re flag ensures real-time playback speed
+    # stdout = video pipe, stderr = logs (kept separate!)
+    ffmpeg -hide_banner -loglevel warning \\
+      -re -i "$videofile" \\
+      -vf "fps=$FPS,scale=\${WIDTH}:\${HEIGHT}:force_original_aspect_ratio=decrease,pad=\${WIDTH}:\${HEIGHT}:(ow-iw)/2:(oh-ih)/2" \\
+      -c:v libx264 -preset veryfast -tune zerolatency \\
+      -b:v 4500k -maxrate 4500k -bufsize 9000k \\
+      -pix_fmt yuv420p -an \\
+      -f mpegts \\
+      -muxdelay 0 -muxpreload 0 \\
+      pipe:1
+  done < "$FILELIST"
+done
+echo "FEEDER: All repeats finished" >&2
+`;
+    fs.writeFileSync(feederScriptPath, feederScript, { mode: 0o755 });
+
+    // Build overlay filter for the main encoder (applied to the uniform MPEGTS input)
+    const mainOverlayFilter = overlayParts.length > 0 ? overlayParts.join(',') : '';
+
+    // Main FFmpeg reads from feeder pipe (stdin) + audio source, applies overlay, outputs to RTMP
+    // If overlay is enabled: decode MPEGTS → apply overlay → encode → RTMP (needs re-encode)
+    // If no overlay: copy video stream directly → RTMP (zero video CPU)
+    const hasOverlay = mainOverlayFilter.length > 0;
+
     const args: string[] = [
-      '-fflags', '+genpts+discardcorrupt+igndts',  // Regenerate PTS, ignore DTS discontinuities, discard corrupt packets
-      '-err_detect', 'ignore_err',                 // Critical: ignore decode errors at file transitions (HEVC↔H.264)
-      '-probesize', '50M',                         // Probe enough data at each file transition
-      '-analyzeduration', '10M',                   // Analyze enough duration at transitions
-      '-re',
-      '-f', 'concat', '-safe', '0',
-      '-auto_convert', '1',                        // Auto-convert codec parameters between segments
-      '-i', playlistPath,
-      '-thread_queue_size', '4096',                // Large queue to prevent stalling between files
-      '-reconnect', '1',                           // Reconnect audio stream if dropped
+      '-fflags', '+genpts+discardcorrupt',
+      '-f', 'mpegts',                              // Input from feeder pipe (uniform H.264 MPEGTS)
+      '-i', 'pipe:0',                              // Read video from stdin
+      '-thread_queue_size', '4096',
+      '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
-      '-i', audioSource.url,
+      '-i', audioSource.url,                        // Audio source (Icecast/AzuraCast)
       '-map', '0:v', '-map', '1:a',
-      '-vsync', 'cfr',                            // Constant frame rate output
-      '-fps_mode', 'cfr',                         // Modern equivalent of -vsync cfr
-      '-copytb', '1',                              // Copy timestamps from demuxer (prevents time base mismatch)
-      '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
-      '-b:v', station.video_bitrate,
-      '-maxrate', station.video_bitrate,
-      '-bufsize', `${parseInt(station.video_bitrate) * 2}k`,
-      '-r', String(station.video_fps),
-      '-g', String(station.video_fps * 2),         // Keyframe every 2 seconds (YouTube requirement)
-      '-keyint_min', String(station.video_fps),     // Min keyframe interval
-      '-pix_fmt', 'yuv420p',                        // Force pixel format (YouTube requirement)
-      '-vf', videoFilter,
-      '-max_muxing_queue_size', '4096',            // Prevent muxing queue overflow at transitions
-      '-max_error_rate', '0.5',                    // Allow up to 50% error rate before quitting (default is 2/3)
+    ];
+
+    if (hasOverlay) {
+      // With overlay: need to decode, apply filter, re-encode
+      args.push(
+        '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
+        '-b:v', station.video_bitrate,
+        '-maxrate', station.video_bitrate,
+        '-bufsize', `${parseInt(station.video_bitrate) * 2}k`,
+        '-r', String(station.video_fps),
+        '-g', String(station.video_fps * 2),
+        '-keyint_min', String(station.video_fps),
+        '-pix_fmt', 'yuv420p',
+        '-vf', mainOverlayFilter,
+      );
+    } else {
+      // No overlay: copy the already-encoded H.264 from feeder (zero CPU)
+      args.push(
+        '-c:v', 'copy',
+      );
+    }
+
+    args.push(
+      '-max_muxing_queue_size', '4096',
       '-c:a', 'aac', '-b:a', station.audio_bitrate, '-ar', '44100',
       '-strict', 'experimental',
-      '-flags', '+global_header',                   // Required for FLV streaming
-    ];
+      '-flags', '+global_header',
+    );
 
     // Output: single destination = simple FLV, multiple = tee muxer
     if (destinations.length === 1) {
@@ -401,7 +447,6 @@ export class FFmpegSupervisor extends EventEmitter {
       const url = (dest.stream_key ? `${dest.rtmp_url.trim()}/${dest.stream_key.trim()}` : dest.rtmp_url.trim());
       args.push('-f', 'flv', '-flvflags', 'no_duration_filesize', url);
     } else {
-      // tee muxer: single video+audio stream copied to N destinations
       const teeOutputs = destinations.map(d => {
         const url = (d.stream_key ? `${d.rtmp_url.trim()}/${d.stream_key.trim()}` : d.rtmp_url.trim());
         return `[f=flv:flvflags=no_duration_filesize]${url}`;
@@ -409,16 +454,23 @@ export class FFmpegSupervisor extends EventEmitter {
       args.push('-f', 'tee', teeOutputs.join('|'));
     }
 
-    this.emit('log', stationId, 'info', 'app', `Launching FFmpeg with ${destinations.length} destination(s)`);
-    console.log(`[FFMPEG] Launching for station=${stationId} with ${destinations.length} destination(s), PID will follow...`);
+    this.emit('log', stationId, 'info', 'app', `Launching FFmpeg (pipe-feeder mode) with ${destinations.length} destination(s)`);
+    console.log(`[FFMPEG] Launching pipe-feeder for station=${stationId}`);
     this.setProcessStatus(stationId, 'starting', '');
 
-    const ffmpeg = spawn('ffmpeg', args, {
+    // 1) Start the feeder script (decodes videos → MPEGTS pipe)
+    const feeder = spawn('sh', [feederScriptPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // 2) Start the main FFmpeg encoder (reads MPEGTS from stdin → RTMP)
+    const ffmpeg = spawn('ffmpeg', args, {
+      stdio: [feeder.stdout!, 'pipe', 'pipe'],  // stdin = feeder stdout
     });
 
     const proc: StationProcess = {
       ffmpeg,
+      feeder,
       status: 'running',
       restartCount: this.processes.get(stationId)?.restartCount || 0,
       lastError: '',
@@ -428,16 +480,27 @@ export class FFmpegSupervisor extends EventEmitter {
     this.processes.set(stationId, proc);
     this.updateDbStatus(stationId, 'running');
     this.emit('status', stationId, 'running');
-    console.log(`[FFMPEG] Started for station=${stationId}, PID=${ffmpeg.pid}`);
+    console.log(`[FFMPEG] Started: feeder PID=${feeder.pid}, encoder PID=${ffmpeg.pid} for station=${stationId}`);
 
+    // Feeder stderr (per-video decode warnings/errors)
+    feeder.stderr?.on('data', (data: Buffer) => {
+      const line = data.toString().trim();
+      if (line) {
+        const isError = /error|failed|invalid|corrupt|broken|fault/i.test(line);
+        if (isError) {
+          console.error(`[FEEDER-STDERR] station=${stationId}: ${line}`);
+          this.emit('log', stationId, 'warn', 'feeder', line);
+        }
+        // Don't log non-error feeder lines (too verbose)
+      }
+    });
+
+    // Main FFmpeg stderr
     ffmpeg.stderr?.on('data', (data: Buffer) => {
       const line = data.toString().trim();
       if (line) {
-        // Log important FFmpeg stderr lines to stdout for docker logs persistence
-        // Progress frames (frame=, size=, time=, speed=) stay debug-only
         const isProgress = /^(frame|size|bitrate|speed|fps)\s*=/.test(line) || /^\s*(frame|size)=/.test(line);
         if (!isProgress) {
-          // Non-progress stderr lines often contain errors, warnings, codec info
           const isError = /error|failed|invalid|corrupt|broken|fault/i.test(line);
           if (isError) {
             console.error(`[FFMPEG-STDERR] station=${stationId}: ${line}`);
@@ -458,7 +521,18 @@ export class FFmpegSupervisor extends EventEmitter {
       }
     });
 
+    // When feeder exits (all videos played), log it
+    feeder.on('close', (code) => {
+      console.log(`[FEEDER] Exited with code ${code} for station=${stationId}`);
+      this.emit('log', stationId, 'info', 'app', `Video feeder finished (code ${code})`);
+    });
+
+    // When main FFmpeg exits, handle restart
     ffmpeg.on('close', (code) => {
+      // Kill feeder if still running
+      if (feeder && !feeder.killed) {
+        feeder.kill('SIGTERM');
+      }
       console.log(`[FFMPEG] Exited with code ${code} for station=${stationId}, restartCount=${proc.restartCount}`);
       this.emit('log', stationId, 'info', 'app', `FFmpeg exited with code ${code}`);
       if (proc.status !== 'stopped') {
@@ -613,7 +687,7 @@ export class FFmpegSupervisor extends EventEmitter {
 
   private setProcessStatus(stationId: string, status: StationProcess['status'], error: string) {
     const proc = this.processes.get(stationId) || {
-      ffmpeg: null, status, restartCount: 0, lastError: error, startedAt: null, pid: null,
+      ffmpeg: null, feeder: null, status, restartCount: 0, lastError: error, startedAt: null, pid: null,
     };
     proc.status = status;
     proc.lastError = error;
